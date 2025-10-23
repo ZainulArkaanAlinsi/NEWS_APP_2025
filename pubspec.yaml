@@ -1,0 +1,51 @@
+name: zernews
+description: "A modern news application built with Flutter"
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.8.1 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  get: ^4.6.6
+  http: ^1.1.0
+  url_launcher: ^6.2.1
+  carousel_slider: ^5.1.1
+  shared_preferences: ^2.3.2
+  get_storage: ^2.1.1
+  share_plus: ^7.0.0
+  lottie: ^3.3.2
+  shimmer: ^3.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_native_splash: ^2.4.6
+  flutter_launcher_icons: ^0.13.1
+
+flutter_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/icons/icon.png"
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/splash1.png
+    - assets/images/splash2.png
+    - assets/images/splash3.png
+    - assets/icons/icon.png
+
+flutter_native_splash:
+  color: "#ffffff"
+  image: "assets/icons/icon.png"
+  android: true
+  ios: true
+  web: false
