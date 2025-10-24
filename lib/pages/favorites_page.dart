@@ -6,8 +6,11 @@ import '../controllers/news_controller.dart';
 import '../controllers/theme_controller.dart';
 import '../widgets/news_card.dart';
 
-class FavoritesPage extends StatelessWidget {
-  final NewsController controller = Get.find<NewsController>();
+// MENGUBAH ke GetView<NewsController>
+class FavoritesPage extends GetView<NewsController> {
+  // 'controller' (NewsController) sudah tersedia secara otomatis di GetView
+
+  // ThemeController tetap perlu di-find karena bukan controller utama halaman ini.
   final ThemeController themeController = Get.find<ThemeController>();
 
   // Color palette yang lebih kreatif dan dinamis
@@ -35,6 +38,7 @@ class FavoritesPage extends StatelessWidget {
 
               // Konten utama dengan berbagai state
               Obx(() {
+                // Menggunakan properti 'controller' otomatis dari GetView
                 if (controller.isLoading.value) {
                   return _buildCreativeLoadingState(context);
                 }
@@ -51,7 +55,7 @@ class FavoritesPage extends StatelessWidget {
   }
 
   // ====================================================================
-  // 🎨 BACKGROUND & APPBAR KREATIF
+  // 耳 BACKGROUND & APPBAR KREATIF
   // ====================================================================
 
   // Background dengan animasi gradient yang halus
@@ -127,6 +131,7 @@ class FavoritesPage extends StatelessWidget {
 
                         // Clear All button dengan kondisi
                         Obx(() {
+                          // Menggunakan properti 'controller' otomatis
                           if (controller.favoriteArticles.isEmpty) {
                             return const SizedBox(width: 44);
                           }
@@ -146,7 +151,7 @@ class FavoritesPage extends StatelessWidget {
   }
 
   // ====================================================================
-  // 🔘 BUTTONS & INTERACTIVE ELEMENTS
+  // 曝 BUTTONS & INTERACTIVE ELEMENTS
   // ====================================================================
 
   // Back button dengan animasi hover
@@ -270,6 +275,7 @@ class FavoritesPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Obx(() {
+                  // Menggunakan properti 'controller' otomatis
                   final count = controller.favoriteArticles.length;
                   return Text(
                     count == 0
@@ -292,7 +298,7 @@ class FavoritesPage extends StatelessWidget {
   }
 
   // ====================================================================
-  // 📚 FAVORITES LIST KREATIF
+  // 答 FAVORITES LIST KREATIF
   // ====================================================================
 
   Widget _buildCreativeFavoritesList() {
@@ -307,6 +313,7 @@ class FavoritesPage extends StatelessWidget {
             childAspectRatio: 1.6,
           ),
           delegate: SliverChildBuilderDelegate((context, index) {
+            // Menggunakan properti 'controller' otomatis
             final article = controller.favoriteArticles[index];
             return _buildAnimatedNewsCard(article, index);
           }, childCount: controller.favoriteArticles.length),
@@ -362,7 +369,7 @@ class FavoritesPage extends StatelessWidget {
   }
 
   // ====================================================================
-  // 🎭 EMPTY STATE KREATIF
+  // 鹿 EMPTY STATE KREATIF
   // ====================================================================
 
   SliverToBoxAdapter _buildCreativeEmptyState(BuildContext context) {
@@ -477,7 +484,7 @@ class FavoritesPage extends StatelessWidget {
   }
 
   // ====================================================================
-  // ⏳ LOADING STATE KREATIF
+  // 竢ｳ LOADING STATE KREATIF
   // ====================================================================
 
   SliverToBoxAdapter _buildCreativeLoadingState(BuildContext context) {
@@ -553,7 +560,7 @@ class FavoritesPage extends StatelessWidget {
   }
 
   // ====================================================================
-  // 🗑️ DIALOG KREATIF
+  // 卵ｸDIALOG KREATIF
   // ====================================================================
 
   void _showCreativeClearAllDialog() {
@@ -633,13 +640,16 @@ class FavoritesPage extends StatelessWidget {
                 const SizedBox(height: 15),
 
                 // Description
-                Text(
-                  'This will remove all ${controller.favoriteArticles.length} carefully collected articles from your personal library. This journey cannot be reversed.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: theme.colorScheme.onSurface.withOpacity(0.7),
-                    height: 1.5,
+                Obx(
+                  () => Text(
+                    // Menggunakan properti 'controller' otomatis
+                    'This will remove all ${controller.favoriteArticles.length} carefully collected articles from your personal library. This journey cannot be reversed.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurface.withOpacity(0.7),
+                      height: 1.5,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 30),
@@ -695,6 +705,7 @@ class FavoritesPage extends StatelessWidget {
                               offset: Offset((1 - value) * 20, 0),
                               child: ElevatedButton(
                                 onPressed: () {
+                                  // Menggunakan properti 'controller' otomatis
                                   controller.clearAllFavorites();
                                   Get.back();
                                   _showCreativeSuccessSnackbar();

@@ -1,99 +1,86 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-// Asumsikan path controllers dan widget sudah benar
 import '../controllers/news_controller.dart';
 import '../controllers/theme_controller.dart';
 import '../widgets/news_card.dart';
 
 class SearchPage extends StatefulWidget {
   @override
-  _SearchPageState createState() => _SearchPageState();
+  State<SearchPage> createState() => _SearchPageState();
 }
 
-class _SearchPageState extends State<SearchPage> with TickerProviderStateMixin {
-  final NewsController controller = Get.find<NewsController>();
+class _SearchPageState extends State<SearchPage> with SingleTickerProviderStateMixin {
+  final SearchController searchController = Get.put(SearchController());
+  final NewsController newsController = Get.find<NewsController>();
   final ThemeController themeController = Get.find<ThemeController>();
-  final TextEditingController searchController = TextEditingController();
-  final FocusNode searchFocusNode = FocusNode();
 
-  // Animasi untuk transisi Body
-  late AnimationController bodyAnimationController;
-  late Animation<double> bodyFadeAnimation; // <-- VARIABEL INI YANG ERROR
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _slideAnimation;
 
-  // Data
-  final List<String> popularSearches = [
-    'AI',
-    'Startup',
-    'Crypto',
-    'Politics',
-    'Space',
-    'HealthTech',
-    'Climate',
-    'Gaming',
-  ];
-  final RxList<String> recentSearches = <String>[].obs;
-
-  static const Color accentColor = Color(0xFF4A4E69);
-  static const Color lightAccentColor = Color(0xFF9A8C98);
+  // Color palette yang kreatif
+  static const Color primaryColor = Color(0xFFFF6B6B);
+  static const Color secondaryColor = Color(0xFF4ECDC4);
+  static const Color accentColor = Color(0xFFFFD166);
+  static const Color darkBlue = Color(0xFF1A1F38);
 
   @override
   void initState() {
     super.initState();
-
-    // 1. Inisialisasi controller dan animasi HARUS di sini
-    bodyAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 500),
+    
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 800),
       vsync: this,
     );
-
-    bodyFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: bodyAnimationController, curve: Curves.easeOut),
+    
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeOutCubic,
+      ),
     );
-    bodyAnimationController.forward();
-
-    // 2. Sinkronisasi Controller/Listener BARU BOLEH di sini
-    // Masalahnya kemungkinan besar terjadi di sini karena listener dieksekusi
-    // secara tak terduga sebelum inisialisasi animasi selesai.
-    searchController.addListener(() {
-      // Pastikan hanya memperbarui state GetX saat teks benar-benar berbeda
-      final newQuery = searchController.text.trim();
-      if (controller.searchQuery.value != newQuery) {
-        controller.searchQuery.value = newQuery;
-      }
-    });
-
-    // 3. Request focus
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      searchFocusNode.requestFocus();
+    
+    _slideAnimation = Tween<double>(begin: 30.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeOutBack,
+      ),
+    );
+    
+    _animationController.forward();
+    
+    // Request focus setelah animasi dimulai
+    Future.delayed(const Duration(milliseconds: 300), () {
+      searchController.searchFocusNode.requestFocus();
     });
   }
-
-  // --- (sisanya sama) ---
 
   @override
   void dispose() {
-    searchController.dispose();
-    searchFocusNode.dispose();
-    bodyAnimationController.dispose();
+    _animationController.dispose();
     super.dispose();
   }
-
-  // ====================================================================
-  // 🔨 BUILD METHODS
-  // ====================================================================
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
+      backgroundColor: darkBlue,
       body: SafeArea(
         child: Column(
           children: [
             _buildSearchHeader(context),
             Expanded(
-              // Pastikan bodyFadeAnimation digunakan DI SINI setelah diinisialisasi di initState
-              child: FadeTransition(
-                opacity: bodyFadeAnimation,
+              child: AnimatedBuilder(
+                animation: _animationController,
+                builder: (context, child) {
+                  return Opacity(
+                    opacity: _fadeAnimation.value,
+                    child: Transform.translate(
+                      offset: Offset(0, _slideAnimation.value),
+                      child: child,
+                    ),
+                  );
+                },
                 child: _buildSearchBody(context),
               ),
             ),
@@ -103,283 +90,234 @@ class _SearchPageState extends State<SearchPage> with TickerProviderStateMixin {
     );
   }
 
-  // --- (sisa fungsi widget lainnya tetap sama) ---
+  // ====================================================================
+  // 🎨 SEARCH HEADER dengan Glass Morphism
+  // ====================================================================
 
   Widget _buildSearchHeader(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Container(
-      padding: const EdgeInsets.only(top: 16, bottom: 24, left: 20, right: 20),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
+        ),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
         boxShadow: [
           BoxShadow(
-            color: theme.colorScheme.shadow.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
       child: Row(
         children: [
-          _buildActionButton(
-            context: context,
-            icon: Icons.arrow_back_ios_new_rounded,
+          // Back Button
+          _buildGlassButton(
             onTap: () => Get.back(),
-            isPrimary: false,
+            icon: Icons.arrow_back_rounded,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
+          
+          // Search Field
           Expanded(
             child: Container(
-              height: 52,
+              height: 56,
               decoration: BoxDecoration(
-                color: theme.colorScheme.background,
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.colorScheme.shadow.withOpacity(0.15),
-                    offset: const Offset(3, 3),
-                    blurRadius: 10,
-                  ),
-                  BoxShadow(
-                    color: theme.colorScheme.surface.withOpacity(0.7),
-                    offset: const Offset(-3, -3),
-                    blurRadius: 10,
-                  ),
-                ],
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.white.withOpacity(0.1),
+                    Colors.white.withOpacity(0.05),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withOpacity(0.2)),
               ),
-              child: TextField(
-                controller: searchController,
-                focusNode: searchFocusNode,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  filled: true,
-                  fillColor: Colors.transparent,
-                  hintText: 'Search articles or topics...',
-                  hintStyle: TextStyle(
-                    color: theme.colorScheme.onSurface.withOpacity(0.5),
-                    fontSize: 15,
-                  ),
-                  prefixIcon: Padding(
-                    padding: const EdgeInsets.only(left: 12.0),
-                    child: Icon(
-                      Icons.search_rounded,
-                      color: accentColor,
-                      size: 24,
+              child: Row(
+                children: [
+                  const SizedBox(width: 16),
+                  Icon(Icons.search_rounded, 
+                      color: Colors.white.withOpacity(0.7), 
+                      size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: searchController.searchTextController,
+                      focusNode: searchController.searchFocusNode,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Search news, topics, or stories...',
+                        hintStyle: TextStyle(
+                          color: Colors.white.withOpacity(0.5),
+                          fontSize: 16,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      onSubmitted: (value) => searchController.performSearch(value),
                     ),
                   ),
-                  suffixIcon: Obx(
-                    () => controller.searchQuery.value.isNotEmpty
-                        ? IconButton(
-                            icon: Icon(
-                              Icons.clear_rounded,
-                              color: theme.colorScheme.onSurface.withOpacity(
-                                0.5,
-                              ),
-                            ),
-                            onPressed: () {
-                              searchController.clear();
-                              controller.clearSearch();
-                              searchFocusNode.requestFocus();
-                            },
-                          )
-                        : const SizedBox(),
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(28),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                ),
-                style: TextStyle(
-                  color: theme.colorScheme.onSurface,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-                onSubmitted: (value) => _performSearch(value),
+                  Obx(() => searchController.searchTextController.text.isNotEmpty
+                      ? IconButton(
+                          icon: Icon(Icons.clear_rounded, 
+                                color: Colors.white.withOpacity(0.7)),
+                          onPressed: searchController.clearSearch,
+                        )
+                      : const SizedBox()),
+                  const SizedBox(width: 8),
+                ],
               ),
             ),
           ),
-          const SizedBox(width: 12),
-          _buildActionButton(
-            context: context,
-            icon: Icons.send_rounded,
-            onTap: () => _performSearch(searchController.text),
-            isPrimary: true,
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildActionButton({
-    required BuildContext context,
-    required IconData icon,
+  Widget _buildGlassButton({
     required VoidCallback onTap,
-    required bool isPrimary,
+    required IconData icon,
   }) {
-    final theme = Theme.of(context);
-
-    final Color buttonColor = isPrimary
-        ? accentColor
-        : theme.colorScheme.onSurface.withOpacity(0.1);
-    final Color iconColor = isPrimary
-        ? Colors.white
-        : theme.colorScheme.onSurface;
-
     return Container(
-      width: 52,
-      height: 52,
+      width: 50,
+      height: 50,
       decoration: BoxDecoration(
-        color: isPrimary ? accentColor : theme.colorScheme.surface,
+        color: Colors.white.withOpacity(0.1),
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: buttonColor.withOpacity(0.2),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: Colors.white.withOpacity(0.2)),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onTap,
           borderRadius: BorderRadius.circular(16),
-          child: Icon(icon, size: 24, color: iconColor),
+          onTap: () {
+            onTap();
+          },
+          child: Icon(icon, color: Colors.white, size: 24),
         ),
       ),
     );
   }
+
+  // ====================================================================
+  // 📱 SEARCH BODY dengan GetX Reactive
+  // ====================================================================
 
   Widget _buildSearchBody(BuildContext context) {
     return Obx(() {
-      if (controller.isLoading.value) {
-        return _buildLoadingState(context);
+      if (newsController.isLoading.value) {
+        return _buildLoadingState();
       }
 
-      if (controller.searchQuery.value.isEmpty || controller.articles.isEmpty) {
-        return _buildInitialAndEmptyState(context);
+      if (searchController.searchTextController.text.isEmpty) {
+        return _buildInitialState();
       }
 
-      if (controller.errorMessage.isNotEmpty) {
-        return _buildErrorState(context);
+      if (newsController.articles.isEmpty) {
+        return _buildEmptyState();
       }
 
-      return _buildSearchResults(context);
+      return _buildSearchResults();
     });
   }
 
-  Widget _buildInitialAndEmptyState(BuildContext context) {
-    final theme = Theme.of(context);
-
-    if (controller.searchQuery.value.isEmpty) {
-      return SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSectionTitle('🔥 Popular Topics', theme),
-            const SizedBox(height: 16),
-            _buildPopularSearches(context),
-            const SizedBox(height: 32),
-
-            if (recentSearches.isNotEmpty) ...[
-              _buildSectionTitle('🕒 Recent Activity', theme),
-              const SizedBox(height: 16),
-              _buildRecentSearches(context),
-            ],
-          ],
-        ),
-      );
-    }
-
-    return _buildNoResultsState(context);
-  }
-
-  Widget _buildSectionTitle(String title, ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
-          color: theme.colorScheme.onSurface,
-        ),
+  Widget _buildInitialState() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionTitle('🔥 Trending Searches'),
+          const SizedBox(height: 16),
+          _buildTrendingSearches(),
+          const SizedBox(height: 32),
+          Obx(() => searchController.recentSearches.isNotEmpty
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSectionTitle('🕒 Recent Searches'),
+                    const SizedBox(height: 16),
+                    _buildRecentSearches(),
+                  ],
+                )
+              : const SizedBox()),
+        ],
       ),
     );
   }
 
-  Widget _buildPopularSearches(BuildContext context) {
-    return SizedBox(
-      height: 48,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: popularSearches.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 10),
-        itemBuilder: (context, index) {
-          return _buildPillChip(
-            context,
-            popularSearches[index],
-            isTrending: true,
-          );
-        },
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.w800,
+        color: Colors.white,
+        letterSpacing: -0.5,
       ),
     );
   }
 
-  Widget _buildRecentSearches(BuildContext context) {
-    return Column(
-      children: recentSearches
-          .map((search) => _buildRecentSearchItem(context, search))
-          .toList(),
+  Widget _buildTrendingSearches() {
+    final trendingTopics = [
+      {'icon': Icons.trending_up_rounded', 'text': 'Technology', 'color': primaryColor},
+      {'icon': Icons.currency_bitcoin_rounded', 'text': 'Crypto', 'color': secondaryColor},
+      {'icon': Icons.health_and_safety_rounded', 'text': 'Health', 'color': accentColor},
+      {'icon': Icons.sports_esports_rounded', 'text': 'Gaming', 'color': Colors.purpleAccent},
+      {'icon': Icons.business_rounded', 'text': 'Business', 'color': Colors.blueAccent},
+      {'icon': Icons.science_rounded', 'text': 'Science', 'color': Colors.greenAccent},
+    ];
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: trendingTopics.map((topic) {
+        return _buildTopicChip(
+          icon: topic['icon'] as IconData,
+          text: topic['text'] as String,
+          color: topic['color'] as Color,
+        );
+      }).toList(),
     );
   }
 
-  Widget _buildPillChip(
-    BuildContext context,
-    String text, {
-    bool isTrending = false,
+  Widget _buildTopicChip({
+    required IconData icon,
+    required String text,
+    required Color color,
   }) {
-    final theme = Theme.of(context);
-    final Color backgroundColor = isTrending
-        ? accentColor.withOpacity(0.1)
-        : theme.colorScheme.surface;
-    final Color textColor = isTrending
-        ? accentColor
-        : theme.colorScheme.onSurface.withOpacity(0.8);
-    final IconData icon = isTrending
-        ? Icons.local_fire_department_rounded
-        : Icons.history_rounded;
-
     return Container(
       decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: textColor.withOpacity(0.2)),
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.3)),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => _performSearch(text),
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => searchController.performSearch(text),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: 16, color: textColor.withOpacity(0.7)),
+                Icon(icon, size: 18, color: color),
                 const SizedBox(width: 8),
                 Text(
                   text,
                   style: TextStyle(
+                    color: Colors.white,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: textColor,
                   ),
                 ),
               ],
@@ -390,44 +328,50 @@ class _SearchPageState extends State<SearchPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildRecentSearchItem(BuildContext context, String search) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
+  Widget _buildRecentSearches() {
+    return Column(
+      children: searchController.recentSearches.map((search) {
+        return _buildRecentSearchItem(search);
+      }).toList(),
+    );
+  }
+
+  Widget _buildRecentSearchItem(String search) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+      ),
       child: Material(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        elevation: 1,
+        color: Colors.transparent,
         child: InkWell(
-          onTap: () => _performSearch(search),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => searchController.performSearch(search),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                Icon(
-                  Icons.history_rounded,
-                  size: 20,
-                  color: theme.colorScheme.onSurface.withOpacity(0.6),
-                ),
+                Icon(Icons.history_rounded, 
+                    color: Colors.white.withOpacity(0.6), 
+                    size: 20),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     search,
                     style: TextStyle(
+                      color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.w500,
-                      color: theme.colorScheme.onSurface,
                     ),
                   ),
                 ),
                 IconButton(
-                  icon: Icon(
-                    Icons.close_rounded,
-                    size: 18,
-                    color: theme.colorScheme.onSurface.withOpacity(0.4),
-                  ),
-                  onPressed: () => recentSearches.remove(search),
+                  icon: Icon(Icons.close_rounded, 
+                        color: Colors.white.withOpacity(0.4), 
+                        size: 18),
+                  onPressed: () => searchController.removeRecentSearch(search),
                 ),
               ],
             ),
@@ -437,7 +381,7 @@ class _SearchPageState extends State<SearchPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildLoadingState(BuildContext context) {
+  Widget _buildLoadingState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -445,23 +389,30 @@ class _SearchPageState extends State<SearchPage> with TickerProviderStateMixin {
           Container(
             width: 80,
             height: 80,
-            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: accentColor.withOpacity(0.1),
+              color: primaryColor.withOpacity(0.1),
               shape: BoxShape.circle,
             ),
-            child: const CircularProgressIndicator(
-              color: accentColor,
-              strokeWidth: 4,
+            child: CircularProgressIndicator(
+              color: primaryColor,
+              strokeWidth: 3,
             ),
           ),
           const SizedBox(height: 24),
           Text(
-            'Searching for "${controller.searchQuery.value}"...',
+            'Searching...',
             style: TextStyle(
-              fontSize: 16,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-              fontWeight: FontWeight.w500,
+              fontSize: 18,
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Looking for "${searchController.searchTextController.text}"',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.white.withOpacity(0.7),
             ),
             textAlign: TextAlign.center,
           ),
@@ -470,8 +421,7 @@ class _SearchPageState extends State<SearchPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildNoResultsState(BuildContext context) {
-    final theme = Theme.of(context);
+  Widget _buildEmptyState() {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -479,128 +429,81 @@ class _SearchPageState extends State<SearchPage> with TickerProviderStateMixin {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 100,
-              height: 100,
+              width: 120,
+              height: 120,
               decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
+                color: Colors.white.withOpacity(0.05),
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: lightAccentColor.withOpacity(0.3),
-                  width: 2,
-                ),
+                border: Border.all(color: Colors.white.withOpacity(0.1)),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.search_off_rounded,
-                size: 48,
-                color: lightAccentColor,
+                size: 50,
+                color: Colors.white.withOpacity(0.5),
               ),
             ),
             const SizedBox(height: 24),
             Text(
-              'No Matches Found',
+              'No Results Found',
               style: TextStyle(
-                fontSize: 22,
+                fontSize: 24,
                 fontWeight: FontWeight.w800,
-                color: theme.colorScheme.onSurface,
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 12),
             Text(
-              'We couldn\'t find any articles matching\n**"${controller.searchQuery.value}"**\nTry a different keyword.',
+              'We couldn\'t find any matches for\n"${searchController.searchTextController.text}"',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 15,
-                color: theme.colorScheme.onSurface.withOpacity(0.65),
-                height: 1.4,
+                fontSize: 16,
+                color: Colors.white.withOpacity(0.7),
+                height: 1.5,
               ),
             ),
             const SizedBox(height: 32),
-            ElevatedButton.icon(
-              onPressed: () {
-                searchController.clear();
-                controller.clearSearch();
-                searchFocusNode.requestFocus();
-              },
-              icon: const Icon(Icons.lightbulb_outline_rounded, size: 20),
-              label: const Text('View Popular Topics'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: accentColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                textStyle: const TextStyle(fontWeight: FontWeight.w600),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildErrorState(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
             Container(
-              width: 100,
-              height: 100,
               decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.redAccent.withOpacity(0.3),
-                  width: 2,
+                gradient: LinearGradient(
+                  colors: [primaryColor, secondaryColor],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: primaryColor.withOpacity(0.3),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
               ),
-              child: const Icon(
-                Icons.cloud_off_rounded,
-                size: 48,
-                color: Colors.redAccent,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Connection Error',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: theme.colorScheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Failed to load search results. Please check your network connection and try again.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                color: theme.colorScheme.onSurface.withOpacity(0.65),
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton.icon(
-              onPressed: () => _performSearch(controller.searchQuery.value),
-              icon: const Icon(Icons.refresh_rounded, size: 20),
-              label: const Text('Try Again'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: accentColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                textStyle: const TextStyle(fontWeight: FontWeight.w600),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onPressed: searchController.clearSearch,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 16,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.explore_rounded, color: Colors.white),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Browse Trending Topics',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -610,67 +513,47 @@ class _SearchPageState extends State<SearchPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildSearchResults(BuildContext context) {
-    final theme = Theme.of(context);
+  Widget _buildSearchResults() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        // Header Results
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.05),
+            border: Border(
+              bottom: BorderSide(color: Colors.white.withOpacity(0.1)),
+            ),
+          ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              RichText(
-                text: TextSpan(
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: theme.colorScheme.onSurface,
-                    height: 1.5,
-                  ),
-                  children: [
-                    const TextSpan(text: 'Found '),
-                    TextSpan(
-                      text: '${controller.articles.length}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        color: accentColor,
-                      ),
-                    ),
-                    const TextSpan(text: ' results for '),
-                    TextSpan(
-                      text: '"${controller.searchQuery.value}"',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontStyle: FontStyle.italic,
-                        color: accentColor,
-                      ),
-                    ),
-                  ],
+              Text(
+                '${newsController.articles.length} results found',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: lightAccentColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.white.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.sort_rounded,
-                      size: 16,
-                      color: lightAccentColor,
-                    ),
-                    const SizedBox(width: 4),
+                    Icon(Icons.sort_rounded, 
+                         color: Colors.white.withOpacity(0.7), 
+                         size: 16),
+                    const SizedBox(width: 6),
                     Text(
                       'Relevance',
                       style: TextStyle(
+                        color: Colors.white.withOpacity(0.7),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: lightAccentColor,
                       ),
                     ),
                   ],
@@ -679,17 +562,17 @@ class _SearchPageState extends State<SearchPage> with TickerProviderStateMixin {
             ],
           ),
         ),
-        const Divider(height: 1, indent: 20, endIndent: 20),
-
+        
+        // Results List
         Expanded(
           child: ListView.builder(
-            padding: const EdgeInsets.all(20),
-            itemCount: controller.articles.length,
+            padding: const EdgeInsets.all(16),
+            itemCount: newsController.articles.length,
             itemBuilder: (context, index) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 16),
                 child: NewsCard(
-                  article: controller.articles[index],
+                  article: newsController.articles[index],
                   showFavoriteButton: true,
                   isGrid: false,
                 ),
@@ -700,23 +583,62 @@ class _SearchPageState extends State<SearchPage> with TickerProviderStateMixin {
       ],
     );
   }
+}
 
-  void _performSearch(String query) {
+class SearchController extends GetxController {
+  final TextEditingController searchTextController = TextEditingController();
+  final FocusNode searchFocusNode = FocusNode();
+  
+  final RxList<String> recentSearches = <String>[].obs;
+  final RxBool isLoading = false.obs;
+
+  @override
+  void onInit() {
+    super.onInit();
+    // Load recent searches dari local storage
+    _loadRecentSearches();
+  }
+
+  void _loadRecentSearches() {
+    // Simulasi loading recent searches
+    recentSearches.assignAll(['Technology', 'Flutter', 'AI', 'Startup']);
+  }
+
+  void performSearch(String query) {
     final trimmedQuery = query.trim();
     if (trimmedQuery.isEmpty) return;
 
-    searchController.text = trimmedQuery;
-    controller.searchNews(trimmedQuery);
-
-    if (recentSearches.contains(trimmedQuery)) {
-      recentSearches.remove(trimmedQuery);
-    }
-    recentSearches.insert(0, trimmedQuery);
-
-    if (recentSearches.length > 8) {
-      recentSearches.removeLast();
+    searchTextController.text = trimmedQuery;
+    
+    // Add to recent searches
+    if (!recentSearches.contains(trimmedQuery)) {
+      recentSearches.insert(0, trimmedQuery);
+      if (recentSearches.length > 8) {
+        recentSearches.removeLast();
+      }
     }
 
+    // Perform search using NewsController
+    final newsController = Get.find<NewsController>();
+    newsController.searchNews(trimmedQuery);
+    
     searchFocusNode.unfocus();
+  }
+
+  void clearSearch() {
+    searchTextController.clear();
+    searchFocusNode.requestFocus();
+    Get.find<NewsController>().clearSearch();
+  }
+
+  void removeRecentSearch(String search) {
+    recentSearches.remove(search);
+  }
+
+  @override
+  void onClose() {
+    searchTextController.dispose();
+    searchFocusNode.dispose();
+    super.onClose();
   }
 }

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
-import '../services/news_service.dart';
+import 'package:zernews/services/news_services.dart';
 import '../models/article.dart';
 import '../models/news_category.dart';
 
 class NewsController extends GetxController {
-  // Observable variables
+  // Observable variables dengan GetX
   var isLoading = false.obs;
   var articles = <Article>[].obs;
   var favoriteArticles = <Article>[].obs;
@@ -23,6 +23,7 @@ class NewsController extends GetxController {
   var currentPage = 1.obs;
   var canLoadMore = true.obs;
   var isLoadingMore = false.obs;
+  var totalArticlesFetched = 0.obs;
 
   final _storage = GetStorage();
   final _favoritesKey = 'favorite_articles';
@@ -38,12 +39,17 @@ class NewsController extends GetxController {
     _loadLastFetchTime();
     _loadSelectedCountry();
 
-    // Auto-fetch news jika sudah lebih dari 30 menit atau tidak ada cached data
-    if (_shouldAutoRefresh() || !_hasCachedArticles()) {
-      fetchTopHeadlines();
-    } else {
-      _loadCachedArticles();
-    }
+    // Auto-fetch dengan delay untuk memberikan waktu inisialisasi
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (_shouldAutoRefresh() || !_hasCachedArticles()) {
+        fetchEnhancedHeadlines();
+      } else {
+        _loadCachedArticles();
+        if (_shouldAutoRefresh()) {
+          refreshNews();
+        }
+      }
+    });
   }
 
   void initializeCategories() {
@@ -53,36 +59,31 @@ class NewsController extends GetxController {
   bool _shouldAutoRefresh() {
     final now = DateTime.now();
     final difference = now.difference(lastFetchTime.value);
-    return difference.inMinutes > 30;
+    return difference.inMinutes > 20; // Reduced from 30 minutes
   }
 
   bool _hasCachedArticles() {
     return _storage.hasData(_cachedArticlesKey);
   }
 
-  // Load favorites dari local storage
+  // Enhanced favorites management
   void _loadFavoritesFromStorage() {
     try {
       final storedFavorites = _storage.read<List>(_favoritesKey);
       if (storedFavorites != null) {
-        favoriteArticles.assignAll(
-          storedFavorites
-              .map((item) => Article.fromJson(item))
-              .where((article) => article.title.isNotEmpty)
-              .toList(),
-        );
+        final loadedFavorites = storedFavorites
+            .map((item) => Article.fromJson(item))
+            .where((article) => article.title.isNotEmpty)
+            .toList();
 
-        // Set favorite status untuk semua favorites yang diload
-        for (var favorite in favoriteArticles) {
-          favorite.isFavorite.value = true;
-        }
+        favoriteArticles.assignAll(loadedFavorites);
+        print('❤️ Loaded ${favoriteArticles.length} favorites from storage');
       }
     } catch (e) {
       print('❌ Error loading favorites: $e');
     }
   }
 
-  // Save favorites ke local storage
   void _saveFavoritesToStorage() {
     try {
       final favoritesJson = favoriteArticles
@@ -94,34 +95,36 @@ class NewsController extends GetxController {
     }
   }
 
-  // Load last fetch time
   void _loadLastFetchTime() {
     final storedTime = _storage.read<String>(_lastFetchKey);
     if (storedTime != null) {
-      lastFetchTime.value = DateTime.parse(storedTime);
+      try {
+        lastFetchTime.value = DateTime.parse(storedTime);
+      } catch (_) {
+        lastFetchTime.value = DateTime.now().subtract(const Duration(hours: 1));
+      }
     }
   }
 
-  // Save last fetch time
   void _saveLastFetchTime() {
     _storage.write(_lastFetchKey, DateTime.now().toIso8601String());
     lastFetchTime.value = DateTime.now();
   }
 
-  // Load selected country
   void _loadSelectedCountry() {
     final storedCountry = _storage.read<String>(_selectedCountryKey);
-    if (storedCountry != null) {
+    if (storedCountry != null &&
+        NewsService.getAvailableCountries().contains(storedCountry)) {
       currentCountry.value = storedCountry;
+    } else {
+      currentCountry.value = 'us';
     }
   }
 
-  // Save selected country
   void _saveSelectedCountry() {
     _storage.write(_selectedCountryKey, currentCountry.value);
   }
 
-  // Load cached articles
   void _loadCachedArticles() {
     try {
       final cachedArticles = _storage.read<List>(_cachedArticlesKey);
@@ -131,6 +134,10 @@ class NewsController extends GetxController {
             .where((article) => article.title.isNotEmpty)
             .toList();
 
+        for (var article in loadedArticles) {
+          article.isFavorite.value = isFavorite(article);
+        }
+
         articles.assignAll(loadedArticles);
         _updateTopArticles();
 
@@ -138,10 +145,10 @@ class NewsController extends GetxController {
       }
     } catch (e) {
       print('❌ Error loading cached articles: $e');
+      _storage.remove(_cachedArticlesKey);
     }
   }
 
-  // Save articles ke cache
   void _saveArticlesToCache(List<Article> articlesToCache) {
     try {
       final articlesJson = articlesToCache
@@ -153,17 +160,20 @@ class NewsController extends GetxController {
     }
   }
 
-  // Update top articles
   void _updateTopArticles() {
-    if (articles.length > 5) {
-      topArticles.assignAll(articles.sublist(0, 5));
+    final articlesWithImage = articles
+        .where((a) => a.urlToImage != null && a.urlToImage!.isNotEmpty)
+        .toList();
+
+    if (articlesWithImage.length >= 8) {
+      topArticles.assignAll(articlesWithImage.sublist(0, 8));
     } else {
-      topArticles.assignAll(articles);
+      topArticles.assignAll(articlesWithImage);
     }
   }
 
-  // Enhanced fetch top headlines dengan pagination
-  Future<void> fetchTopHeadlines({bool loadMore = false}) async {
+  // Enhanced fetch dengan lebih banyak artikel
+  Future<void> fetchEnhancedHeadlines({bool loadMore = false}) async {
     if (loadMore) {
       if (!canLoadMore.value || isLoadingMore.value) return;
       isLoadingMore(true);
@@ -173,6 +183,8 @@ class NewsController extends GetxController {
       isLoading(true);
       currentPage(1);
       canLoadMore(true);
+      articles.clear();
+      totalArticlesFetched(0);
     }
 
     try {
@@ -182,50 +194,59 @@ class NewsController extends GetxController {
       }
 
       print(
-        '🌐 Fetching headlines for country: ${currentCountry.value} (Page ${currentPage.value})',
+        '🌐 Fetching enhanced headlines for ${currentCountry.value} (Page ${currentPage.value})',
       );
 
       List<Article> result = await NewsService.getTopHeadlines(
         country: currentCountry.value,
-        pageSize: 30,
+        pageSize: 50, // Increased page size
         page: currentPage.value,
       );
 
+      // Update favorite status
+      for (var article in result) {
+        article.isFavorite.value = isFavorite(article);
+      }
+
       if (result.isNotEmpty) {
         if (loadMore) {
-          // Tambahkan ke existing articles
           articles.addAll(result);
-          // Remove duplicates
           final seenUrls = <String>{};
-          articles.retainWhere((article) => seenUrls.add(article.url!));
+          articles.retainWhere(
+            (article) => article.url.isNotEmpty && seenUrls.add(article.url),
+          );
         } else {
-          // Replace articles
           articles.assignAll(result);
         }
 
-        _saveArticlesToCache(articles);
-        _saveLastFetchTime();
+        totalArticlesFetched(totalArticlesFetched.value + result.length);
+
+        if (!loadMore) {
+          _saveArticlesToCache(articles);
+          _saveLastFetchTime();
+        }
         _updateTopArticles();
 
-        // Check jika bisa load more
-        canLoadMore(result.length >= 30);
+        canLoadMore(result.length >= 50);
 
         print('✅ Loaded ${result.length} articles (Total: ${articles.length})');
 
         if (!loadMore) {
-          _showSnackbar(
+          _showEnhancedSnackbar(
             '📰 News Updated',
-            'Loaded ${result.length} fresh articles',
-            Colors.green.shade600,
+            'Loaded ${articles.length} fresh articles',
+            Colors.green,
+            Icons.article,
           );
         }
       } else {
         if (loadMore) {
           canLoadMore(false);
-          _showSnackbar(
-            'No More Articles',
-            'All articles have been loaded',
-            Colors.blue.shade600,
+          _showEnhancedSnackbar(
+            'All Articles Loaded',
+            'No more articles available',
+            Colors.blue,
+            Icons.check_circle,
           );
         } else {
           errorMessage('No articles available at the moment');
@@ -233,15 +254,9 @@ class NewsController extends GetxController {
         }
       }
     } on NewsApiException catch (e) {
-      _handleApiError(e, 'fetching headlines');
-      if (loadMore) {
-        currentPage.value--; // Rollback page jika error
-      }
+      _handleEnhancedApiError(e, 'fetching headlines', loadMore: loadMore);
     } catch (e) {
-      _handleGenericError(e, 'fetching headlines');
-      if (loadMore) {
-        currentPage.value--; // Rollback page jika error
-      }
+      _handleEnhancedGenericError(e, 'fetching headlines', loadMore: loadMore);
     } finally {
       if (loadMore) {
         isLoadingMore(false);
@@ -252,230 +267,98 @@ class NewsController extends GetxController {
     }
   }
 
-  // Load more articles
+  // Enhanced load more dengan GetX
   Future<void> loadMoreArticles() async {
-    await fetchTopHeadlines(loadMore: true);
-  }
-
-  // Fetch dari multiple categories
-  Future<void> fetchMultipleCategories() async {
-    try {
-      isLoading(true);
-      errorMessage('');
-      hasError(false);
-      currentPage(1);
-      canLoadMore(false); // Disable load more untuk multiple categories
-
-      print('🎯 Fetching from multiple categories...');
-
-      List<Article> result = await NewsService.getMultipleCategoriesNews(
-        country: currentCountry.value,
-        categories: [
-          'general',
-          'technology',
-          'business',
-          'sports',
-          'entertainment',
-        ],
-        articlesPerCategory: 15,
-      );
-
-      if (result.isNotEmpty) {
-        articles.assignAll(result);
-        _saveArticlesToCache(articles);
-        _updateTopArticles();
-
-        print('✅ Loaded ${result.length} articles from multiple categories');
-
-        _showSnackbar(
-          'Diverse News Loaded',
-          'Fetched ${result.length} articles from various categories',
-          Colors.green.shade600,
-        );
-      } else {
-        errorMessage('No articles available from multiple categories');
-        hasError(true);
-      }
-    } on NewsApiException catch (e) {
-      _handleApiError(e, 'fetching multiple categories');
-    } catch (e) {
-      _handleGenericError(e, 'fetching multiple categories');
-    } finally {
-      isLoading(false);
+    if (searchQuery.value.isEmpty && selectedCategory.value == 'general') {
+      await fetchEnhancedHeadlines(loadMore: true);
+    } else if (isSearching.value) {
+      await enhancedSearchNews(searchQuery.value, loadMore: true);
+    } else {
+      await fetchNewsByCategory(selectedCategory.value, loadMore: true);
     }
   }
 
-  // Alternative news source as fallback
-  Future<List<Article>> _fetchAlternativeNews() async {
-    try {
-      // Try different categories as fallback
-      final List<String> fallbackCategories = [
-        'technology',
-        'sports',
-        'entertainment',
-        'business',
-      ];
-
-      for (String category in fallbackCategories) {
-        try {
-          final result = await NewsService.getNewsByCategory(
-            category: category,
-            country: currentCountry.value,
-            pageSize: 20,
-          );
-          if (result.isNotEmpty) {
-            print('✅ Found ${result.length} articles in $category category');
-            return result;
-          }
-        } catch (e) {
-          print('❌ Failed to fetch $category category: $e');
-          continue;
-        }
-      }
-    } catch (e) {
-      print('❌ Alternative news fetch failed: $e');
-    }
-
-    return [];
-  }
-
-  // Enhanced error handling for API exceptions
-  void _handleApiError(NewsApiException e, String operation) {
-    String errorMsg = _parseErrorMessage(e);
-    errorMessage('Failed to load news: $errorMsg');
-    hasError(true);
-    print('❌ API Error $operation: ${e.message}');
-
-    // Fallback to cached data
-    if (articles.isEmpty) {
-      _loadCachedArticles();
-      if (articles.isNotEmpty) {
-        errorMessage('Showing cached news. $errorMsg');
-        hasError(false);
-
-        _showSnackbar(
-          '⚠️ Using Cached Data',
-          'Showing previously saved articles',
-          Colors.orange.shade600,
-        );
-      }
-    }
-  }
-
-  // Enhanced error handling for generic exceptions
-  void _handleGenericError(dynamic e, String operation) {
-    String errorMsg = _parseErrorMessage(e);
-    errorMessage('Failed to load news: $errorMsg');
-    hasError(true);
-    print('❌ Error $operation: $e');
-
-    // Fallback to cached data
-    if (articles.isEmpty) {
-      _loadCachedArticles();
-      if (articles.isNotEmpty) {
-        errorMessage('Showing cached news. $errorMsg');
-        hasError(false);
-
-        _showSnackbar(
-          '⚠️ Using Cached Data',
-          'Showing previously saved articles',
-          Colors.orange.shade600,
-        );
-      }
-    }
-  }
-
-  // Enhanced error message parsing
-  String _parseErrorMessage(dynamic error) {
-    if (error is NewsApiException) {
-      return error.message;
-    }
-
-    String errorString = error.toString();
-
-    // Remove exception prefixes and provide user-friendly messages
-    errorString = errorString.replaceAll('Exception: ', '');
-
-    if (errorString.contains('SocketException') ||
-        errorString.contains('Network is unreachable') ||
-        errorString.contains('Failed host lookup')) {
-      return 'No internet connection. Please check your network settings.';
-    } else if (errorString.contains('Timeout') ||
-        errorString.contains('timed out')) {
-      return 'Connection timeout. Server is taking too long to respond.';
-    } else if (errorString.contains('401') ||
-        errorString.contains('Unauthorized')) {
-      return 'API key invalid or expired. Please contact support.';
-    } else if (errorString.contains('429')) {
-      return 'Too many requests. Please wait a moment before trying again.';
-    } else if (errorString.contains('500')) {
-      return 'Server error. Please try again later.';
-    } else if (errorString.contains('No host specified')) {
-      return 'Network error. Please check your internet connection.';
-    } else if (errorString.contains('XMLHttpRequest')) {
-      return 'Network error. Please check your internet connection.';
-    }
-
-    return 'Unable to load news. Please try again.';
-  }
-
-  // Enhanced fetch news by category
-  Future<void> fetchNewsByCategory(String category) async {
-    try {
+  // Enhanced category fetch dengan load more support
+  Future<void> fetchNewsByCategory(
+    String category, {
+    bool loadMore = false,
+  }) async {
+    if (loadMore) {
+      if (!canLoadMore.value || isLoadingMore.value) return;
+      isLoadingMore(true);
+      currentPage.value++;
+    } else {
       isLoading(true);
       errorMessage('');
       hasError(false);
       selectedCategory(category);
       currentPage(1);
       canLoadMore(true);
+      if (!loadMore) articles.clear();
+    }
 
-      print('🌐 Fetching $category news...');
+    try {
+      print('🌐 Fetching $category news (Page ${currentPage.value})...');
 
       List<Article> result = await NewsService.getNewsByCategory(
-        category: category,
+        category,
         country: currentCountry.value,
-        pageSize: 25,
+        pageSize: 40,
       );
 
+      for (var article in result) {
+        article.isFavorite.value = isFavorite(article);
+      }
+
       if (result.isNotEmpty) {
-        articles.assignAll(result);
+        if (loadMore) {
+          articles.addAll(result);
+        } else {
+          articles.assignAll(result);
+        }
+
+        canLoadMore(result.length >= 40);
+
         print('✅ Loaded ${result.length} $category articles');
+
+        if (!loadMore) {
+          _showEnhancedSnackbar(
+            'Category News',
+            'Fetched ${articles.length} ${category} articles',
+            _getCategoryColor(category),
+            _getCategoryIcon(category),
+          );
+        }
       } else {
-        errorMessage(
-          'No news found for $category category. Try refreshing or check back later.',
-        );
-        hasError(true);
+        if (!loadMore) {
+          errorMessage('No news found for $category category');
+          hasError(true);
+        } else {
+          canLoadMore(false);
+        }
       }
     } on NewsApiException catch (e) {
-      _handleApiError(e, 'fetching $category news');
+      _handleEnhancedApiError(e, 'fetching $category news', loadMore: loadMore);
     } catch (e) {
-      _handleGenericError(e, 'fetching $category news');
+      _handleEnhancedGenericError(
+        e,
+        'fetching $category news',
+        loadMore: loadMore,
+      );
     } finally {
-      isLoading(false);
+      if (loadMore) {
+        isLoadingMore(false);
+      } else {
+        isLoading(false);
+      }
     }
   }
 
-  // Improved category search terms
-  String _getCategorySearchTerm(String category) {
-    final searchTerms = {
-      'business': 'business OR finance OR economy OR market OR stock',
-      'entertainment':
-          'entertainment OR celebrity OR movie OR film OR music OR Hollywood',
-      'health': 'health OR medical OR healthcare OR medicine OR wellness',
-      'science': 'science OR research OR discovery OR study OR innovation',
-      'sports':
-          'sports OR football OR basketball OR game OR match OR tournament',
-      'technology':
-          'technology OR tech OR innovation OR digital OR AI OR artificial intelligence',
-      'general': 'news OR current affairs OR breaking news',
-    };
+  // Enhanced search dengan GetX
+  Future<void> enhancedSearchNews(String query, {bool loadMore = false}) async {
+    final cleanQuery = query.trim();
 
-    return searchTerms[category] ?? 'news OR $category';
-  }
-
-  // Enhanced search dengan pagination
-  Future<void> searchNews(String query, {bool loadMore = false}) async {
-    if (query.trim().isEmpty && !loadMore) {
+    if (cleanQuery.isEmpty && !loadMore) {
       clearSearch();
       return;
     }
@@ -489,45 +372,57 @@ class NewsController extends GetxController {
       isSearching(true);
       errorMessage('');
       hasError(false);
-      searchQuery(query.trim());
+      searchQuery(cleanQuery);
       currentPage(1);
       canLoadMore(true);
+      articles.clear();
     }
 
     try {
       List<Article> result = await NewsService.searchNews(
         searchQuery.value,
-        pageSize: 30,
+        pageSize: 50,
         page: currentPage.value,
       );
+
+      for (var article in result) {
+        article.isFavorite.value = isFavorite(article);
+      }
 
       if (result.isNotEmpty) {
         if (loadMore) {
           articles.addAll(result);
+          final seenUrls = <String>{};
+          articles.retainWhere(
+            (article) => article.url.isNotEmpty && seenUrls.add(article.url),
+          );
         } else {
           articles.assignAll(result);
         }
-        canLoadMore(result.length >= 30);
+        canLoadMore(result.length >= 50);
 
         print('✅ Found ${result.length} results for "${searchQuery.value}"');
+
+        if (!loadMore) {
+          _showEnhancedSnackbar(
+            '🔍 Search Complete',
+            'Found ${articles.length} articles for "$cleanQuery"',
+            Colors.purple,
+            Icons.search,
+          );
+        }
       } else {
         if (!loadMore) {
-          errorMessage('No results found for "${searchQuery.value}"');
+          errorMessage('No results found for "$cleanQuery"');
           hasError(true);
         } else {
           canLoadMore(false);
         }
       }
     } on NewsApiException catch (e) {
-      _handleApiError(e, 'searching news');
-      if (loadMore) {
-        currentPage.value--;
-      }
+      _handleEnhancedApiError(e, 'searching news', loadMore: loadMore);
     } catch (e) {
-      _handleGenericError(e, 'searching news');
-      if (loadMore) {
-        currentPage.value--;
-      }
+      _handleEnhancedGenericError(e, 'searching news', loadMore: loadMore);
     } finally {
       if (loadMore) {
         isLoadingMore(false);
@@ -537,32 +432,165 @@ class NewsController extends GetxController {
     }
   }
 
-  // Enhanced favorites management
+  // Enhanced multiple categories fetch
+  Future<void> fetchEnhancedMultipleCategories() async {
+    try {
+      isLoading(true);
+      errorMessage('');
+      hasError(false);
+      currentPage(1);
+      canLoadMore(false);
+      articles.clear();
+
+      print('🎯 Fetching from enhanced multiple categories...');
+
+      List<Article> result = await NewsService.getMultipleCategoriesNews(
+        country: currentCountry.value,
+        categories: [
+          'general',
+          'technology',
+          'business',
+          'sports',
+          'entertainment',
+          'health',
+          'science',
+        ],
+        articlesPerCategory: 15,
+      );
+
+      for (var article in result) {
+        article.isFavorite.value = isFavorite(article);
+      }
+
+      if (result.isNotEmpty) {
+        articles.assignAll(result);
+        _saveArticlesToCache(articles);
+        _updateTopArticles();
+
+        print('✅ Loaded ${result.length} articles from multiple categories');
+
+        _showEnhancedSnackbar(
+          'Diverse News',
+          'Fetched ${result.length} articles from 7 categories',
+          Colors.deepPurple,
+          Icons.diversity_3,
+        );
+      } else {
+        errorMessage('No articles available from multiple categories');
+        hasError(true);
+      }
+    } on NewsApiException catch (e) {
+      _handleEnhancedApiError(e, 'fetching multiple categories');
+    } catch (e) {
+      _handleEnhancedGenericError(e, 'fetching multiple categories');
+    } finally {
+      isLoading(false);
+    }
+  }
+
+  // Enhanced error handling
+  void _handleEnhancedApiError(
+    NewsApiException e,
+    String operation, {
+    bool loadMore = false,
+  }) {
+    String errorMsg = _parseEnhancedErrorMessage(e);
+    errorMessage('Failed to load news: $errorMsg');
+    hasError(true);
+    print('❌ API Error $operation: ${e.message}');
+
+    if (loadMore) {
+      currentPage.value--;
+    } else {
+      if (articles.isEmpty) {
+        _loadCachedArticles();
+        if (articles.isNotEmpty) {
+          errorMessage('Showing cached news. $errorMsg');
+          hasError(false);
+          _showEnhancedSnackbar(
+            '⚠️ Using Cached Data',
+            'Showing previously saved articles',
+            Colors.orange,
+            Icons.cached,
+          );
+        }
+      }
+    }
+  }
+
+  void _handleEnhancedGenericError(
+    dynamic e,
+    String operation, {
+    bool loadMore = false,
+  }) {
+    String errorMsg = _parseEnhancedErrorMessage(e);
+    errorMessage('Failed to load news: $errorMsg');
+    hasError(true);
+    print('❌ Error $operation: $e');
+
+    if (loadMore) {
+      currentPage.value--;
+    } else {
+      if (articles.isEmpty) {
+        _loadCachedArticles();
+        if (articles.isNotEmpty) {
+          errorMessage('Showing cached news. $errorMsg');
+          hasError(false);
+          _showEnhancedSnackbar(
+            '⚠️ Using Cached Data',
+            'Showing previously saved articles',
+            Colors.orange,
+            Icons.cached,
+          );
+        }
+      }
+    }
+  }
+
+  String _parseEnhancedErrorMessage(dynamic error) {
+    if (error is NewsApiException) {
+      if (error.code == 401) {
+        return 'API key invalid or expired.';
+      } else if (error.code == 429) {
+        return 'Too many requests. Please wait.';
+      }
+      return error.message;
+    }
+
+    String errorString = error.toString();
+    errorString = errorString.replaceAll('Exception: ', '');
+
+    if (errorString.contains('SocketException') ||
+        errorString.contains('Network is unreachable')) {
+      return 'No internet connection.';
+    } else if (errorString.contains('Timeout')) {
+      return 'Connection timeout.';
+    }
+
+    return 'Unable to load news. Please try again.';
+  }
+
+  // Enhanced favorites management dengan GetX
   void addToFavorites(Article article) {
     if (!favoriteArticles.any((item) => item.url == article.url)) {
-      // Create a new instance to avoid reference issues
-      final favoriteArticle = Article(
-        source: article.source,
-        author: article.author,
-        title: article.title,
-        description: article.description,
-        url: article.url,
-        urlToImage: article.urlToImage,
-        publishedAt: article.publishedAt,
-        content: article.content,
-      );
-      favoriteArticle.isFavorite.value = true;
-
+      final favoriteArticle = article.copyWith(isFavorite: true);
       favoriteArticles.add(favoriteArticle);
       _saveFavoritesToStorage();
 
-      // Update the original article's favorite status
-      article.isFavorite.value = true;
+      final original = articles.firstWhereOrNull(
+        (item) => item.url == article.url,
+      );
+      if (original != null) {
+        original.isFavorite.value = true;
+      } else {
+        article.isFavorite.value = true;
+      }
 
-      _showSnackbar(
+      _showEnhancedSnackbar(
         '❤️ Added to Favorites',
         'Article saved to your favorites',
-        Colors.green.shade600,
+        Colors.pink,
+        Icons.favorite,
       );
     }
   }
@@ -571,13 +599,20 @@ class NewsController extends GetxController {
     favoriteArticles.removeWhere((item) => item.url == article.url);
     _saveFavoritesToStorage();
 
-    // Update the article's favorite status
-    article.isFavorite.value = false;
+    final original = articles.firstWhereOrNull(
+      (item) => item.url == article.url,
+    );
+    if (original != null) {
+      original.isFavorite.value = false;
+    } else {
+      article.isFavorite.value = false;
+    }
 
-    _showSnackbar(
+    _showEnhancedSnackbar(
       '🗑️ Removed from Favorites',
       'Article removed from favorites',
-      Colors.orange.shade600,
+      Colors.grey,
+      Icons.favorite_border,
     );
   }
 
@@ -595,88 +630,92 @@ class NewsController extends GetxController {
 
   void clearAllFavorites() {
     if (favoriteArticles.isNotEmpty) {
-      // Reset favorite status for all articles
-      for (var favorite in favoriteArticles) {
-        favorite.isFavorite.value = false;
+      for (var article in articles) {
+        if (isFavorite(article)) {
+          article.isFavorite.value = false;
+        }
       }
 
       favoriteArticles.clear();
       _saveFavoritesToStorage();
 
-      _showSnackbar(
+      _showEnhancedSnackbar(
         '🧹 All Favorites Cleared',
-        'All articles have been removed from favorites',
-        Colors.blue.shade600,
+        'All articles removed from favorites',
+        Colors.blue,
+        Icons.delete_sweep,
         duration: const Duration(seconds: 3),
       );
     }
   }
 
-  // Helper method for showing snackbars
-  void _showSnackbar(
+  // Enhanced snackbar dengan GetX
+  void _showEnhancedSnackbar(
     String title,
     String message,
-    Color backgroundColor, {
-    Duration duration = const Duration(seconds: 2),
+    Color color,
+    IconData icon, {
+    Duration duration = const Duration(seconds: 3),
   }) {
+    if (Get.isSnackbarOpen) return;
+
     Get.snackbar(
       title,
       message,
       snackPosition: SnackPosition.BOTTOM,
       duration: duration,
-      backgroundColor: backgroundColor,
+      backgroundColor: color,
       colorText: Colors.white,
-      borderRadius: 12,
-      margin: const EdgeInsets.all(16),
-      icon: Icon(Icons.info, color: Colors.white),
+      borderRadius: 16,
+      margin: const EdgeInsets.all(20),
+      icon: Icon(icon, color: Colors.white),
+      shouldIconPulse: true,
+      snackStyle: SnackStyle.FLOATING,
     );
   }
 
-  // Enhanced refresh with retry logic
-  Future<void> refreshNews() async {
+  // Enhanced refresh dengan GetX
+  Future<void> refreshNews({bool force = false}) async {
+    if (isRefreshing.value && !force) return;
+
     isRefreshing(true);
     errorMessage('');
     hasError(false);
+    currentPage(1);
 
     try {
-      // Add a small delay to show refreshing state
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 800));
 
       if (searchQuery.value.isNotEmpty) {
-        await searchNews(searchQuery.value);
+        await enhancedSearchNews(searchQuery.value);
       } else if (selectedCategory.value != 'general') {
         await fetchNewsByCategory(selectedCategory.value);
       } else {
-        await fetchTopHeadlines();
+        await fetchEnhancedHeadlines();
       }
     } catch (e) {
-      errorMessage('Refresh failed: ${_parseErrorMessage(e)}');
+      errorMessage('Refresh failed: ${_parseEnhancedErrorMessage(e)}');
       hasError(true);
     } finally {
       isRefreshing(false);
     }
   }
 
-  // Change country and refresh news
+  // Enhanced country change
   Future<void> changeCountry(String countryCode) async {
     if (currentCountry.value != countryCode) {
       currentCountry.value = countryCode;
       _saveSelectedCountry();
 
-      // Refresh news with new country
-      if (searchQuery.value.isNotEmpty) {
-        await searchNews(searchQuery.value);
-      } else if (selectedCategory.value != 'general') {
-        await fetchNewsByCategory(selectedCategory.value);
-      } else {
-        await fetchTopHeadlines();
-      }
-    }
-  }
+      await refreshNews(force: true);
 
-  // Get available countries from NewsService
-  List<String> getAvailableCountries() {
-    return NewsService.getAvailableCountries();
+      _showEnhancedSnackbar(
+        'Country Changed',
+        'News updated for ${countryCode.toUpperCase()}',
+        Colors.blue,
+        Icons.public,
+      );
+    }
   }
 
   void clearSearch() {
@@ -685,41 +724,35 @@ class NewsController extends GetxController {
     selectedCategory('general');
     currentPage(1);
     canLoadMore(true);
-    fetchTopHeadlines();
+    fetchEnhancedHeadlines();
   }
 
-  List<Article> get displayArticles {
-    return articles;
-  }
+  // Utility methods
+  List<Article> get displayArticles => articles;
 
   bool get hasArticles => articles.isNotEmpty;
   bool get hasFavorites => favoriteArticles.isNotEmpty;
 
-  // Additional utility methods
   List<Article> getTrendingArticles() {
-    if (articles.length < 3) return articles;
-    return articles.sublist(0, 3);
+    if (topArticles.length < 5) return topArticles;
+    return topArticles.sublist(0, 5);
   }
 
   List<Article> getArticlesBySource(String source) {
     return articles
         .where(
           (article) =>
-              article.source?.name?.toLowerCase().contains(
-                source.toLowerCase(),
-              ) ??
-              false,
+              article.source.toLowerCase().contains(source.toLowerCase()),
         )
         .toList();
   }
 
-  // Get articles by date (today)
   List<Article> getTodaysArticles() {
     final today = DateTime.now();
     return articles.where((article) {
-      if (article.publishedAt == null) return false;
+      if (article.publishedAt.isEmpty) return false;
       try {
-        final articleDate = DateTime.parse(article.publishedAt!);
+        final articleDate = DateTime.parse(article.publishedAt).toLocal();
         return articleDate.year == today.year &&
             articleDate.month == today.month &&
             articleDate.day == today.day;
@@ -729,12 +762,48 @@ class NewsController extends GetxController {
     }).toList();
   }
 
-  // Cleanup method
+  // Helper methods for UI
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'technology':
+        return Colors.blue;
+      case 'business':
+        return Colors.green;
+      case 'sports':
+        return Colors.orange;
+      case 'entertainment':
+        return Colors.purple;
+      case 'health':
+        return Colors.red;
+      case 'science':
+        return Colors.teal;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getCategoryIcon(String category) {
+    switch (category) {
+      case 'technology':
+        return Icons.computer;
+      case 'business':
+        return Icons.business_center;
+      case 'sports':
+        return Icons.sports_baseball;
+      case 'entertainment':
+        return Icons.movie;
+      case 'health':
+        return Icons.health_and_safety;
+      case 'science':
+        return Icons.science;
+      default:
+        return Icons.article;
+    }
+  }
+
   @override
   void onClose() {
     _saveFavoritesToStorage();
-    _saveLastFetchTime();
-    _saveSelectedCountry();
     super.onClose();
   }
 }

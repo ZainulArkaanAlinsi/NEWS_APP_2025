@@ -19,10 +19,6 @@ class LatestStoriesPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isTablet = screenWidth > 600;
-    final isDesktop = screenWidth > 1200;
-
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.background,
       body: RefreshIndicator(
@@ -31,22 +27,7 @@ class LatestStoriesPage extends StatelessWidget {
         color: primaryColor,
         child: CustomScrollView(
           physics: const BouncingScrollPhysics(),
-          slivers: [
-            _buildCreativeAppBar(context, isTablet, isDesktop),
-            Obx(() {
-              if (newsController.isLoading.value &&
-                  newsController.articles.isEmpty) {
-                return _buildCreativeShimmerLoading(isTablet);
-              }
-
-              if (newsController.articles.isEmpty) {
-                return _buildCreativeEmptyState(isTablet);
-              }
-
-              return _buildStoriesGrid(isTablet, isDesktop);
-            }),
-            const SliverToBoxAdapter(child: SizedBox(height: 100)),
-          ],
+          slivers: [_buildCreativeAppBar(context), _buildContentSection()],
         ),
       ),
       floatingActionButton: _buildCreativeFAB(context),
@@ -54,15 +35,12 @@ class LatestStoriesPage extends StatelessWidget {
   }
 
   // ====================================================================
-  // 🎨 CREATIVE APP BAR
+  // 🎨 CREATIVE APP BAR dengan GetX Reactive
   // ====================================================================
 
-  SliverAppBar _buildCreativeAppBar(
-    BuildContext context,
-    bool isTablet,
-    bool isDesktop,
-  ) {
-    final theme = Theme.of(context);
+  SliverAppBar _buildCreativeAppBar(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isTablet = screenWidth > 600;
     final expandedHeight = isTablet ? 220.0 : 180.0;
 
     return SliverAppBar(
@@ -74,7 +52,7 @@ class LatestStoriesPage extends StatelessWidget {
       elevation: 0,
       systemOverlayStyle: SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: theme.brightness == Brightness.dark
+        statusBarIconBrightness: Theme.of(context).brightness == Brightness.dark
             ? Brightness.light
             : Brightness.dark,
       ),
@@ -87,8 +65,6 @@ class LatestStoriesPage extends StatelessWidget {
     bool isTablet,
     double expandedHeight,
   ) {
-    final _ = Theme.of(context);
-
     return FlexibleSpaceBar(
       collapseMode: CollapseMode.pin,
       background: Container(
@@ -109,13 +85,10 @@ class LatestStoriesPage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header dengan tombol aksi
-                _buildAppBarHeader(context, isTablet),
+                _buildAppBarHeader(isTablet),
                 const Spacer(),
-                // Judul utama
                 _buildMainTitle(context, isTablet),
                 const SizedBox(height: 12),
-                // Counter artikel
                 _buildArticleCounter(context),
               ],
             ),
@@ -125,19 +98,15 @@ class LatestStoriesPage extends StatelessWidget {
     );
   }
 
-  Widget _buildAppBarHeader(BuildContext context, bool isTablet) {
-    final _ = Theme.of(context);
-
+  Widget _buildAppBarHeader(bool isTablet) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        // Back button
         _buildGlassButton(
           onTap: () => Get.back(),
           icon: Icons.arrow_back_rounded,
           isTablet: isTablet,
         ),
-        // Action buttons
         Row(
           children: [
             _buildGlassButton(
@@ -241,6 +210,7 @@ class LatestStoriesPage extends StatelessWidget {
           child: Transform.translate(
             offset: Offset(0, 20 * (1 - value)),
             child: Obx(() {
+              final articleCount = newsController.articles.length;
               return Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -256,7 +226,7 @@ class LatestStoriesPage extends StatelessWidget {
                     Icon(Icons.article_rounded, color: Colors.white, size: 16),
                     const SizedBox(width: 8),
                     Text(
-                      '${newsController.articles.length} stories collected',
+                      '$articleCount ${articleCount == 1 ? 'story' : 'stories'} collected',
                       style:
                           Theme.of(context).textTheme.labelLarge?.copyWith(
                             color: Colors.white,
@@ -279,50 +249,75 @@ class LatestStoriesPage extends StatelessWidget {
   }
 
   // ====================================================================
-  // 📱 STORIES GRID/LIST
+  // 📱 CONTENT SECTION dengan GetX Reactive
   // ====================================================================
 
-  Widget _buildStoriesGrid(bool isTablet, bool isDesktop) {
-    final crossAxisCount = isDesktop ? 3 : (isTablet ? 2 : 1);
-    final spacing = isTablet ? 20.0 : 16.0;
-    final padding = isTablet ? 24.0 : 16.0;
+  Widget _buildContentSection() {
+    return Obx(() {
+      if (newsController.isLoading.value && newsController.articles.isEmpty) {
+        return _buildCreativeShimmerLoading();
+      }
 
-    if (crossAxisCount == 1) {
-      return SliverPadding(
-        padding: EdgeInsets.all(padding),
-        sliver: SliverList(
-          delegate: SliverChildBuilderDelegate((context, index) {
-            final article = newsController.articles[index];
-            return _buildAnimatedStoryCard(
-              index,
-              NewsCard(
-                article: article,
-                showFavoriteButton: true,
-                isGrid: false,
-              ),
-            );
-          }, childCount: newsController.articles.length),
-        ),
-      );
-    }
+      if (newsController.articles.isEmpty) {
+        return _buildCreativeEmptyState();
+      }
 
-    return SliverPadding(
-      padding: EdgeInsets.all(padding),
-      sliver: SliverGrid(
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: crossAxisCount,
-          crossAxisSpacing: spacing,
-          mainAxisSpacing: spacing,
-          childAspectRatio: isDesktop ? 0.8 : 0.85,
-        ),
-        delegate: SliverChildBuilderDelegate((context, index) {
-          final article = newsController.articles[index];
-          return _buildAnimatedStoryCard(
-            index,
-            NewsCard(article: article, showFavoriteButton: true, isGrid: true),
+      return _buildStoriesGrid();
+    });
+  }
+
+  Widget _buildStoriesGrid() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screenWidth = constraints.maxWidth;
+        final isTablet = screenWidth > 600;
+        final isDesktop = screenWidth > 1200;
+        final crossAxisCount = isDesktop ? 3 : (isTablet ? 2 : 1);
+        final spacing = isTablet ? 20.0 : 16.0;
+        final padding = isTablet ? 24.0 : 16.0;
+
+        if (crossAxisCount == 1) {
+          return SliverPadding(
+            padding: EdgeInsets.all(padding),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final article = newsController.articles[index];
+                return _buildAnimatedStoryCard(
+                  index,
+                  NewsCard(
+                    article: article,
+                    showFavoriteButton: true,
+                    isGrid: false,
+                  ),
+                );
+              }, childCount: newsController.articles.length),
+            ),
           );
-        }, childCount: newsController.articles.length),
-      ),
+        }
+
+        return SliverPadding(
+          padding: EdgeInsets.all(padding),
+          sliver: SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              crossAxisSpacing: spacing,
+              mainAxisSpacing: spacing,
+              childAspectRatio: isDesktop ? 0.8 : 0.85,
+            ),
+            delegate: SliverChildBuilderDelegate((context, index) {
+              final article = newsController.articles[index];
+              return _buildAnimatedStoryCard(
+                index,
+                NewsCard(
+                  article: article,
+                  showFavoriteButton: true,
+                  isGrid: true,
+                ),
+              );
+            }, childCount: newsController.articles.length),
+          ),
+        );
+      },
     );
   }
 
@@ -347,34 +342,41 @@ class LatestStoriesPage extends StatelessWidget {
   // ⏳ LOADING STATE
   // ====================================================================
 
-  Widget _buildCreativeShimmerLoading(bool isTablet) {
-    final padding = isTablet ? 24.0 : 16.0;
-    final crossAxisCount = isTablet ? 2 : 1;
+  Widget _buildCreativeShimmerLoading() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isTablet = constraints.maxWidth > 600;
+        final padding = isTablet ? 24.0 : 16.0;
+        final crossAxisCount = isTablet ? 2 : 1;
 
-    if (crossAxisCount == 1) {
-      return SliverPadding(
-        padding: EdgeInsets.all(padding),
-        sliver: SliverList(
-          delegate: SliverChildBuilderDelegate((context, index) {
-            return _buildShimmerCard(isTablet);
-          }, childCount: 6),
-        ),
-      );
-    }
+        if (crossAxisCount == 1) {
+          return SliverPadding(
+            padding: EdgeInsets.all(padding),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => _buildShimmerCard(isTablet),
+                childCount: 6,
+              ),
+            ),
+          );
+        }
 
-    return SliverPadding(
-      padding: EdgeInsets.all(padding),
-      sliver: SliverGrid(
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: crossAxisCount,
-          crossAxisSpacing: 20,
-          mainAxisSpacing: 20,
-          childAspectRatio: 0.85,
-        ),
-        delegate: SliverChildBuilderDelegate((context, index) {
-          return _buildShimmerCard(isTablet);
-        }, childCount: 6),
-      ),
+        return SliverPadding(
+          padding: EdgeInsets.all(padding),
+          sliver: SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              crossAxisSpacing: 20,
+              mainAxisSpacing: 20,
+              childAspectRatio: 0.85,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _buildShimmerCard(isTablet),
+              childCount: 6,
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -428,124 +430,130 @@ class LatestStoriesPage extends StatelessWidget {
   // 🎭 EMPTY STATE
   // ====================================================================
 
-  Widget _buildCreativeEmptyState(bool isTablet) {
-    final theme = Theme.of(Get.context!);
-
+  Widget _buildCreativeEmptyState() {
     return SliverToBoxAdapter(
-      child: TweenAnimationBuilder(
-        duration: const Duration(milliseconds: 800),
-        tween: Tween<double>(begin: 0, end: 1),
-        builder: (context, value, child) {
-          return Opacity(
-            opacity: value,
-            child: Transform.translate(
-              offset: Offset(0, 30 * (1 - value)),
-              child: Container(
-                height: isTablet ? 500 : 400,
-                margin: EdgeInsets.all(isTablet ? 32 : 24),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  borderRadius: BorderRadius.circular(32),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isTablet = constraints.maxWidth > 600;
+          final theme = Theme.of(context);
+
+          return TweenAnimationBuilder(
+            duration: const Duration(milliseconds: 800),
+            tween: Tween<double>(begin: 0, end: 1),
+            builder: (context, value, child) {
+              return Opacity(
+                opacity: value,
+                child: Transform.translate(
+                  offset: Offset(0, 30 * (1 - value)),
+                  child: Container(
+                    height: isTablet ? 500 : 400,
+                    margin: EdgeInsets.all(isTablet ? 32 : 24),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(32),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
                     ),
-                  ],
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildEmptyStateIcon(isTablet),
+                        SizedBox(height: isTablet ? 40 : 32),
+                        _buildEmptyStateText(context, theme),
+                        SizedBox(height: isTablet ? 40 : 32),
+                        _buildAnimatedRefreshButton(isTablet),
+                      ],
+                    ),
+                  ),
                 ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // Animated Icon
-                    TweenAnimationBuilder(
-                      duration: const Duration(milliseconds: 1000),
-                      tween: Tween<double>(begin: 0, end: 1),
-                      builder: (context, value, child) {
-                        return Transform.scale(
-                          scale: value,
-                          child: Container(
-                            width: isTablet ? 140 : 120,
-                            height: isTablet ? 140 : 120,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [primaryColor, secondaryColor],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: primaryColor.withOpacity(0.3),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 10),
-                                ),
-                              ],
-                            ),
-                            child: Icon(
-                              Icons.article_outlined,
-                              size: isTablet ? 60 : 50,
-                              color: Colors.white,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    SizedBox(height: isTablet ? 40 : 32),
-
-                    // Title
-                    Text(
-                      'No Stories Found',
-                      style:
-                          Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            color: theme.colorScheme.onSurface,
-                          ) ??
-                          TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            color: theme.colorScheme.onSurface,
-                          ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Description
-                    Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: isTablet ? 60 : 40,
-                      ),
-                      child: Text(
-                        'It seems like there are no stories available at the moment. '
-                        'Check your connection or try refreshing to discover new content.',
-                        textAlign: TextAlign.center,
-                        style:
-                            Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                              height: 1.6,
-                            ) ??
-                            TextStyle(
-                              color: theme.colorScheme.onSurfaceVariant,
-                              fontSize: 16,
-                            ),
-                      ),
-                    ),
-                    SizedBox(height: isTablet ? 40 : 32),
-
-                    // Refresh Button
-                    _buildAnimatedRefreshButton(isTablet),
-                  ],
-                ),
-              ),
-            ),
+              );
+            },
           );
         },
       ),
     );
   }
 
-  Widget _buildAnimatedRefreshButton(bool isTablet) {
-    final _ = Theme.of(Get.context!);
+  Widget _buildEmptyStateIcon(bool isTablet) {
+    return TweenAnimationBuilder(
+      duration: const Duration(milliseconds: 1000),
+      tween: Tween<double>(begin: 0, end: 1),
+      builder: (context, value, child) {
+        return Transform.scale(
+          scale: value,
+          child: Container(
+            width: isTablet ? 140 : 120,
+            height: isTablet ? 140 : 120,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [primaryColor, secondaryColor],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: primaryColor.withOpacity(0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.article_outlined,
+              size: isTablet ? 60 : 50,
+              color: Colors.white,
+            ),
+          ),
+        );
+      },
+    );
+  }
 
+  Widget _buildEmptyStateText(BuildContext context, ThemeData theme) {
+    return Column(
+      children: [
+        Text(
+          'No Stories Found',
+          style:
+              Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                color: theme.colorScheme.onSurface,
+              ) ??
+              TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
+        ),
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40),
+          child: Text(
+            'It seems like there are no stories available at the moment. '
+            'Check your connection or try refreshing to discover new content.',
+            textAlign: TextAlign.center,
+            style:
+                Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  height: 1.6,
+                ) ??
+                TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontSize: 16,
+                ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAnimatedRefreshButton(bool isTablet) {
     return TweenAnimationBuilder(
       duration: const Duration(milliseconds: 600),
       tween: Tween<double>(begin: 0, end: 1),
@@ -582,8 +590,6 @@ class LatestStoriesPage extends StatelessWidget {
   }
 
   Widget _buildCreativeFAB(BuildContext context) {
-    final _ = Theme.of(context);
-
     return TweenAnimationBuilder(
       duration: const Duration(milliseconds: 800),
       tween: Tween<double>(begin: 0, end: 1),
@@ -609,13 +615,13 @@ class LatestStoriesPage extends StatelessWidget {
   }
 
   // ====================================================================
-  // 🔧 UTILITY FUNCTIONS
+  // 🔧 UTILITY FUNCTIONS dengan GetX
   // ====================================================================
 
   Future<void> _handleRefresh() async {
     HapticFeedback.lightImpact();
 
-    // Show snackbar
+    // Show snackbar menggunakan GetX
     Get.showSnackbar(
       GetSnackBar(
         message: 'Getting latest stories...',
@@ -645,7 +651,6 @@ class LatestStoriesPage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Drag handle
             Container(
               width: 40,
               height: 4,
@@ -657,7 +662,6 @@ class LatestStoriesPage extends StatelessWidget {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            // Title
             Text(
               'Filter Stories',
               style:
@@ -667,7 +671,6 @@ class LatestStoriesPage extends StatelessWidget {
                   const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 20),
-            // Content
             Padding(
               padding: const EdgeInsets.all(20),
               child: Text(
@@ -700,7 +703,6 @@ class LatestStoriesPage extends StatelessWidget {
         ),
         child: Column(
           children: [
-            // Drag handle
             Container(
               width: 40,
               height: 4,
@@ -712,7 +714,6 @@ class LatestStoriesPage extends StatelessWidget {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            // Search field
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               child: TextField(
@@ -729,7 +730,6 @@ class LatestStoriesPage extends StatelessWidget {
                 ),
               ),
             ),
-            // Content
             Expanded(
               child: Center(
                 child: Column(

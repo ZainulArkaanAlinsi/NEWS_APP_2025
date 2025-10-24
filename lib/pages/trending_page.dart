@@ -1,75 +1,88 @@
 import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../controllers/news_controller.dart';
 import '../controllers/theme_controller.dart';
 import '../widgets/news_card.dart';
 
-class TrendingPage extends StatelessWidget {
+class TrendingPage extends StatefulWidget {
+  @override
+  State<TrendingPage> createState() => _TrendingPageState();
+}
+
+class _TrendingPageState extends State<TrendingPage>
+    with SingleTickerProviderStateMixin {
   final NewsController newsController = Get.find<NewsController>();
   final ThemeController themeController = Get.find<ThemeController>();
+  final TrendingController trendingController = Get.put(TrendingController());
+
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<double> _slideAnimation;
 
   // Enhanced color scheme dengan gradient yang lebih menarik
-  static const Color primaryTrendColor = Color(0xFFE53935);
-  static const Color secondaryTrendColor = Color(0xFFFF6B35);
-  static const Color accentTrendColor = Color(0xFFFFA726);
-
-  // Scroll controller untuk scroll to top functionality
-  final ScrollController _scrollController = ScrollController();
+  static const Color primaryTrendColor = Color(0xFFFF6B6B);
+  static const Color secondaryTrendColor = Color(0xFF4ECDC4);
+  static const Color accentTrendColor = Color(0xFFFFD166);
 
   @override
-  Widget build(BuildContext context) {
+  void initState() {
+    super.initState();
+
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
+    );
+
+    _slideAnimation = Tween<double>(begin: 30.0, end: 0.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutBack),
+    );
+
+    _animationController.forward();
+
     // Auto refresh saat membuka halaman
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (newsController.articles.isEmpty) {
         newsController.fetchTopHeadlines();
       }
     });
+  }
 
+  @override
+  void dispose() {
+    _animationController.dispose();
+    trendingController.scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.background,
       body: RefreshIndicator(
-        onRefresh: () async => _handleRefresh(),
+        onRefresh: () async => trendingController.handleRefresh(),
         color: primaryTrendColor,
         backgroundColor: Theme.of(context).colorScheme.surface,
         strokeWidth: 3,
         displacement: 40,
         child: CustomScrollView(
-          controller: _scrollController, // Tambahkan controller
+          controller: trendingController.scrollController,
           physics: const BouncingScrollPhysics(),
-          slivers: [
-            _buildEnhancedAppBar(context),
-
-            // Content dengan berbagai state
-            Obx(() {
-              if (newsController.isLoading.value &&
-                  newsController.articles.isEmpty) {
-                return _buildShimmerLoading();
-              }
-
-              if (newsController.hasError.value) {
-                return _buildErrorState();
-              }
-
-              if (newsController.articles.isEmpty &&
-                  !newsController.isLoading.value) {
-                return _buildEnhancedEmptyState(context);
-              }
-
-              return _buildEnhancedTrendingList();
-            }),
-
-            const SliverToBoxAdapter(child: SizedBox(height: 30)),
-          ],
+          slivers: [_buildEnhancedAppBar(context), _buildContentSection()],
         ),
       ),
-      // Floating Action Button untuk quick actions
       floatingActionButton: _buildFloatingActions(context),
     );
   }
 
-  // === 1. ENHANCED APP BAR WITH GLASS MORPHISM ===
+  // ====================================================================
+  // 🎨 ENHANCED APP BAR WITH GLASS MORPHISM
+  // ====================================================================
+
   SliverAppBar _buildEnhancedAppBar(BuildContext context) {
     return SliverAppBar(
       expandedHeight: 140,
@@ -80,79 +93,96 @@ class TrendingPage extends StatelessWidget {
       elevation: 0,
       toolbarHeight: 80,
       automaticallyImplyLeading: false,
-
       flexibleSpace: ClipRect(
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.background.withOpacity(0.8),
-              border: Border(
-                bottom: BorderSide(
-                  color: Theme.of(context).dividerColor.withOpacity(0.1),
-                  width: 1,
+          child: AnimatedBuilder(
+            animation: _animationController,
+            builder: (context, child) {
+              return Opacity(
+                opacity: _fadeAnimation.value,
+                child: Transform.translate(
+                  offset: Offset(0, _slideAnimation.value),
+                  child: child,
+                ),
+              );
+            },
+            child: Container(
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.background.withOpacity(0.8),
+                border: Border(
+                  bottom: BorderSide(
+                    color: Theme.of(context).dividerColor.withOpacity(0.1),
+                    width: 1,
+                  ),
                 ),
               ),
-            ),
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 12,
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // Back & Title Section
-                        Row(
-                          children: [
-                            _buildGlassActionButton(
-                              icon: Icons.arrow_back_ios_new_rounded,
-                              onTap: () => Get.back(),
-                              context: context,
-                            ),
-                            const SizedBox(width: 16),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Trending Now',
-                                  style: TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.w900,
-                                    foreground: Paint()
-                                      ..shader =
-                                          const LinearGradient(
-                                            colors: [
-                                              primaryTrendColor,
-                                              accentTrendColor,
-                                            ],
-                                          ).createShader(
-                                            const Rect.fromLTWH(0, 0, 200, 70),
-                                          ),
-                                    letterSpacing: -0.8,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Back & Title Section
+                          Row(
+                            children: [
+                              _buildGlassActionButton(
+                                icon: Icons.arrow_back_ios_new_rounded,
+                                onTap: () => Get.back(),
+                                context: context,
+                              ),
+                              const SizedBox(width: 16),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Trending Now',
+                                    style: TextStyle(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w900,
+                                      foreground: Paint()
+                                        ..shader =
+                                            const LinearGradient(
+                                              colors: [
+                                                primaryTrendColor,
+                                                accentTrendColor,
+                                              ],
+                                            ).createShader(
+                                              const Rect.fromLTWH(
+                                                0,
+                                                0,
+                                                200,
+                                                70,
+                                              ),
+                                            ),
+                                      letterSpacing: -0.8,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                Obx(() => _buildArticleCount(context)),
-                              ],
-                            ),
-                          ],
-                        ),
-
-                        // Enhanced Refresh Button
-                        _buildGlassActionButton(
-                          icon: Icons.autorenew_rounded,
-                          onTap: _handleRefresh,
-                          context: context,
-                          isRefresh: true,
-                        ),
-                      ],
-                    ),
-                  ],
+                                  const SizedBox(height: 4),
+                                  _buildArticleCount(context),
+                                ],
+                              ),
+                            ],
+                          ),
+                          // Enhanced Refresh Button
+                          _buildGlassActionButton(
+                            icon: Icons.autorenew_rounded,
+                            onTap: trendingController.handleRefresh,
+                            context: context,
+                            isRefresh: true,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -164,23 +194,50 @@ class TrendingPage extends StatelessWidget {
 
   // Article Count dengan animasi
   Widget _buildArticleCount(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 500),
-      child: Text(
-        newsController.articles.isEmpty
-            ? 'Discover hot topics 🔥'
-            : '${newsController.articles.length} trending stories',
-        key: ValueKey<int>(newsController.articles.length),
-        style: TextStyle(
-          fontSize: 13,
-          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-          fontWeight: FontWeight.w500,
+    return Obx(() {
+      return AnimatedSwitcher(
+        duration: const Duration(milliseconds: 500),
+        child: Text(
+          newsController.articles.isEmpty
+              ? 'Discover hot topics 🔥'
+              : '${newsController.articles.length} trending stories',
+          key: ValueKey<int>(newsController.articles.length),
+          style: TextStyle(
+            fontSize: 13,
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+            fontWeight: FontWeight.w500,
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 
-  // === 2. GLASS MORPHISM ACTION BUTTONS ===
+  // ====================================================================
+  // 🎯 CONTENT SECTION dengan GetX Reactive
+  // ====================================================================
+
+  Widget _buildContentSection() {
+    return Obx(() {
+      if (newsController.isLoading.value && newsController.articles.isEmpty) {
+        return _buildShimmerLoading();
+      }
+
+      if (newsController.hasError.value) {
+        return _buildErrorState();
+      }
+
+      if (newsController.articles.isEmpty && !newsController.isLoading.value) {
+        return _buildEnhancedEmptyState(context);
+      }
+
+      return _buildEnhancedTrendingList();
+    });
+  }
+
+  // ====================================================================
+  // 🔥 GLASS MORPHISM ACTION BUTTONS
+  // ====================================================================
+
   Widget _buildGlassActionButton({
     required IconData icon,
     required VoidCallback onTap,
@@ -233,7 +290,10 @@ class TrendingPage extends StatelessWidget {
     );
   }
 
-  // === 3. ENHANCED TRENDING LIST WITH STAGGERED ANIMATIONS ===
+  // ====================================================================
+  // 📈 ENHANCED TRENDING LIST WITH STAGGERED ANIMATIONS
+  // ====================================================================
+
   Widget _buildEnhancedTrendingList() {
     return Obx(() {
       return SliverList(
@@ -321,7 +381,10 @@ class TrendingPage extends StatelessWidget {
     );
   }
 
-  // === 4. SHIMMER LOADING EFFECT ===
+  // ====================================================================
+  // ⏳ SHIMMER LOADING EFFECT
+  // ====================================================================
+
   Widget _buildShimmerLoading() {
     return SliverList(
       delegate: SliverChildBuilderDelegate((context, index) {
@@ -353,47 +416,60 @@ class TrendingPage extends StatelessWidget {
     );
   }
 
-  // === 5. ENHANCED EMPTY STATE ===
+  // ====================================================================
+  // 🎭 ENHANCED EMPTY STATE
+  // ====================================================================
+
   Widget _buildEnhancedEmptyState(BuildContext context) {
     return SliverToBoxAdapter(
-      child: Container(
-        height: 500,
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Animated Illustration
-            _buildEmptyStateIllustration(),
-            const SizedBox(height: 40),
-            Text(
-              'No Trending Stories',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                color: Theme.of(context).colorScheme.onSurface,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(
-                'The news cycle is quiet right now. Check back later for breaking stories and viral content!',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  height: 1.6,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withOpacity(0.6),
-                  fontWeight: FontWeight.w500,
+      child: AnimatedBuilder(
+        animation: _animationController,
+        builder: (context, child) {
+          return Opacity(
+            opacity: _fadeAnimation.value,
+            child: Transform.translate(
+              offset: Offset(0, _slideAnimation.value),
+              child: Container(
+                height: 500,
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildEmptyStateIllustration(),
+                    const SizedBox(height: 40),
+                    Text(
+                      'No Trending Stories',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        color: Theme.of(context).colorScheme.onSurface,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Text(
+                        'The news cycle is quiet right now. Check back later for breaking stories and viral content!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 16,
+                          height: 1.6,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withOpacity(0.6),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    _buildEnhancedRefreshButton(context),
+                  ],
                 ),
               ),
             ),
-            const SizedBox(height: 32),
-            _buildEnhancedRefreshButton(context),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -454,7 +530,7 @@ class TrendingPage extends StatelessWidget {
 
   Widget _buildEnhancedRefreshButton(BuildContext context) {
     return ElevatedButton.icon(
-      onPressed: _handleRefresh,
+      onPressed: trendingController.handleRefresh,
       icon: const Icon(Icons.autorenew_rounded, size: 22),
       label: const Text('Refresh Feed'),
       style: ElevatedButton.styleFrom(
@@ -473,101 +549,150 @@ class TrendingPage extends StatelessWidget {
     );
   }
 
-  // === 6. ERROR STATE ===
+  // ====================================================================
+  // ⚠️ ERROR STATE
+  // ====================================================================
+
   Widget _buildErrorState() {
     return SliverToBoxAdapter(
-      child: Container(
-        height: 400,
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.error_outline_rounded,
-                size: 50,
-                color: Colors.red,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Connection Error',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: Theme.of(Get.context!).colorScheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(
-                'Unable to load trending news. Please check your connection and try again.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 15,
-                  color: Theme.of(
-                    Get.context!,
-                  ).colorScheme.onSurface.withOpacity(0.6),
+      child: AnimatedBuilder(
+        animation: _animationController,
+        builder: (context, child) {
+          return Opacity(
+            opacity: _fadeAnimation.value,
+            child: Transform.translate(
+              offset: Offset(0, _slideAnimation.value),
+              child: Container(
+                height: 400,
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 120,
+                      height: 120,
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.error_outline_rounded,
+                        size: 50,
+                        color: Colors.red,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Connection Error',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Text(
+                        'Unable to load trending news. Please check your connection and try again.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withOpacity(0.6),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: trendingController.handleRefresh,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Try Again'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _handleRefresh,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Try Again'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 
-  // === 7. FLOATING ACTION BUTTONS ===
+  // ====================================================================
+  // 🎯 FLOATING ACTION BUTTONS
+  // ====================================================================
+
   Widget _buildFloatingActions(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Scroll to top button
-        FloatingActionButton(
-          onPressed: _scrollToTop,
-          mini: true,
-          backgroundColor: primaryTrendColor,
-          foregroundColor: Colors.white,
-          child: const Icon(Icons.arrow_upward_rounded),
-        ),
-        const SizedBox(height: 12),
-        // Quick filter button
-        FloatingActionButton(
-          onPressed: _showFilterOptions,
-          backgroundColor: Theme.of(context).colorScheme.surface,
-          foregroundColor: Theme.of(context).colorScheme.onSurface,
-          child: const Icon(Icons.filter_list_rounded),
-        ),
-      ],
+    return AnimatedBuilder(
+      animation: _animationController,
+      builder: (context, child) {
+        return Opacity(
+          opacity: _fadeAnimation.value,
+          child: Transform.translate(
+            offset: Offset(0, _slideAnimation.value),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Scroll to top button
+                FloatingActionButton(
+                  onPressed: trendingController.scrollToTop,
+                  mini: true,
+                  backgroundColor: primaryTrendColor,
+                  foregroundColor: Colors.white,
+                  child: const Icon(Icons.arrow_upward_rounded),
+                ),
+                const SizedBox(height: 12),
+                // Quick filter button
+                FloatingActionButton(
+                  onPressed: trendingController.showFilterOptions,
+                  backgroundColor: Theme.of(context).colorScheme.surface,
+                  foregroundColor: Theme.of(context).colorScheme.onSurface,
+                  child: const Icon(Icons.filter_list_rounded),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
+}
 
-  // === 8. ACTION METHODS ===
-  Future<void> _handleRefresh() async {
+class TrendingController extends GetxController {
+  final NewsController newsController = Get.find<NewsController>();
+  final ScrollController scrollController = ScrollController();
+
+  final RxBool showScrollToTop = false.obs;
+
+  @override
+  void onInit() {
+    super.onInit();
+    // Listen to scroll events
+    scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (scrollController.offset > 400 && !showScrollToTop.value) {
+      showScrollToTop.value = true;
+    } else if (scrollController.offset <= 400 && showScrollToTop.value) {
+      showScrollToTop.value = false;
+    }
+  }
+
+  Future<void> handleRefresh() async {
     await newsController.fetchTopHeadlines();
 
     // Enhanced GetX Snackbar
     Get.showSnackbar(
       GetSnackBar(
         message: 'Updating trending stories...',
-        backgroundColor: primaryTrendColor.withOpacity(0.9),
+        backgroundColor: TrendingPage.primaryTrendColor.withOpacity(0.9),
         borderRadius: 15,
         margin: const EdgeInsets.all(16),
         duration: const Duration(seconds: 2),
@@ -586,9 +711,9 @@ class TrendingPage extends StatelessWidget {
     );
   }
 
-  void _scrollToTop() {
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
+  void scrollToTop() {
+    if (scrollController.hasClients) {
+      scrollController.animateTo(
         0,
         duration: const Duration(milliseconds: 500),
         curve: Curves.easeInOut,
@@ -598,14 +723,14 @@ class TrendingPage extends StatelessWidget {
     Get.snackbar(
       'Scrolling to Top',
       'Taking you back to the latest stories',
-      backgroundColor: primaryTrendColor,
+      backgroundColor: TrendingPage.primaryTrendColor,
       colorText: Colors.white,
       snackPosition: SnackPosition.BOTTOM,
       duration: const Duration(seconds: 1),
     );
   }
 
-  void _showFilterOptions() {
+  void showFilterOptions() {
     Get.bottomSheet(
       Container(
         decoration: BoxDecoration(
@@ -639,11 +764,11 @@ class TrendingPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            // Add filter options here
+            // Filter options
             ListTile(
               leading: Icon(
                 Icons.trending_up_rounded,
-                color: primaryTrendColor,
+                color: TrendingPage.primaryTrendColor,
               ),
               title: Text(
                 'Top Stories',
@@ -655,7 +780,10 @@ class TrendingPage extends StatelessWidget {
               onTap: () => Get.back(),
             ),
             ListTile(
-              leading: Icon(Icons.schedule_rounded, color: primaryTrendColor),
+              leading: Icon(
+                Icons.schedule_rounded,
+                color: TrendingPage.primaryTrendColor,
+              ),
               title: Text(
                 'Latest',
                 style: TextStyle(
@@ -671,7 +799,7 @@ class TrendingPage extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: () => Get.back(),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryTrendColor,
+                  backgroundColor: TrendingPage.primaryTrendColor,
                   foregroundColor: Colors.white,
                   minimumSize: const Size(double.infinity, 50),
                   shape: RoundedRectangleBorder(
@@ -688,8 +816,9 @@ class TrendingPage extends StatelessWidget {
     );
   }
 
-  // Clean up controller ketika tidak digunakan
-  void dispose() {
-    _scrollController.dispose();
+  @override
+  void onClose() {
+    scrollController.dispose();
+    super.onClose();
   }
 }

@@ -2,13 +2,13 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../models/article.dart';
+// Jika Anda ingin menggunakan model Source terpisah, Anda harus membuatnya.
+// Untuk saat ini, kita ikuti model Article yang source-nya adalah String.
 
 class NewsService {
   // Multiple API keys untuk redundancy
   static const List<String> apiKeys = [
     '9027512d045b4a9bb80ad29b71595f88', // Your current key
-    'pub_567893a7e6a5d8a7b6c4d9f1a2b3c4d', // Backup key 1
-    'pub_789012b8f7c6d5e4f3a2b1c0d9e8f7a', // Backup key 2
   ];
 
   static const String baseUrl = 'https://newsapi.org/v2';
@@ -18,7 +18,7 @@ class NewsService {
   static const List<String> corsProxies = [
     'https://api.allorigins.win/raw?url=',
     'https://corsproxy.io/?',
-    'https://cors-anywhere.herokuapp.com/',
+    // 'https://cors-anywhere.herokuapp.com/', // Catatan: Proxy ini sering memerlukan server demo atau tidak stabil
   ];
 
   static int _currentProxyIndex = 0;
@@ -42,7 +42,9 @@ class NewsService {
   }
 
   static String _getCurrentProxyUrl(String url) {
-    return '${corsProxies[_currentProxyIndex]}${Uri.encodeComponent(url)}';
+    // Rotasi proxy jika CORS gagal
+    final proxyUrl = corsProxies[_currentProxyIndex];
+    return '$proxyUrl${Uri.encodeComponent(url)}';
   }
 
   static void _rotateProxy() {
@@ -53,17 +55,34 @@ class NewsService {
   // Enhanced request dengan multiple fallbacks
   static Future<http.Response> _makeRequest(
     String url, {
-    int maxRetries = 2,
+    int maxRetries = 3, // Meningkatkan retries sedikit
   }) async {
+    String currentUrl = url;
+
     for (int attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        print('🌐 Attempt ${attempt + 1}: ${url.substring(0, 100)}...');
+        if (attempt > 0) {
+          // Ganti API key di URL yang baru jika sudah dirotasi
+          currentUrl = url.replaceAllMapped(
+            RegExp(r'apiKey=[^&]+'),
+            (match) => 'apiKey=$_currentApiKey',
+          );
+          // Jika web, pastikan proxy juga diupdate
+          if (kIsWeb) {
+            currentUrl = _getCurrentProxyUrl(currentUrl);
+          }
+        }
+
+        print(
+          '🌐 Attempt ${attempt + 1}: ${currentUrl.substring(0, currentUrl.length > 100 ? 100 : currentUrl.length)}...',
+        );
 
         final response = await http
-            .get(Uri.parse(url))
+            .get(Uri.parse(currentUrl))
             .timeout(
               const Duration(seconds: 15),
-              onTimeout: () => throw NewsApiException(message: 'Timeout'),
+              onTimeout: () =>
+                  throw NewsApiException(message: 'Request timeout'),
             );
 
         if (response.statusCode == 200) {
@@ -71,20 +90,36 @@ class NewsService {
         } else if (response.statusCode == 401 || response.statusCode == 429) {
           // Rotate API key untuk error authorization/rate limit
           _rotateApiKey();
-          final newUrl = url.replaceAll(
-            apiKeys[(attempt) % apiKeys.length],
-            _currentApiKey,
+          if (attempt < maxRetries - 1) {
+            // Lanjut ke iterasi berikutnya dengan key yang baru
+            continue;
+          }
+        } else {
+          // Throw non-retriable HTTP error immediately
+          throw NewsApiException(
+            message: 'HTTP ${response.statusCode}',
+            code: response.statusCode,
           );
-          return await http.get(Uri.parse(newUrl));
         }
+      } on NewsApiException {
+        // Jika NewsApiException, rethrow agar bisa ditangkap di luar
+        rethrow;
       } catch (e) {
         print('❌ Attempt ${attempt + 1} failed: $e');
 
-        if (attempt < maxRetries - 1) {
+        if (kIsWeb && attempt < maxRetries - 1) {
+          // Rotate proxy hanya jika di web dan retrying
           _rotateProxy();
           await Future.delayed(Duration(seconds: 1 + attempt));
           continue;
+        } else if (!kIsWeb && attempt < maxRetries - 1) {
+          // Simple delay for non-web retries
+          await Future.delayed(Duration(seconds: 1 + attempt));
+          continue;
         }
+
+        // Wrap error lainnya menjadi NewsApiException
+        throw NewsApiException(message: 'Network/Unknown Error: $e');
       }
     }
     throw NewsApiException(message: 'All request attempts failed');
@@ -118,26 +153,17 @@ class NewsService {
 
       final filteredArticles = _filterAndParseArticles(articles);
 
-      // Jika hasil sedikit, coba halaman berikutnya
-      if (filteredArticles.length < 10 && page == 1) {
-        print('🔄 Few results, fetching page 2...');
-        final nextPageArticles = await getTopHeadlines(
-          country: country,
-          category: category,
-          pageSize: pageSize,
-          page: 2,
-        );
-        filteredArticles.addAll(nextPageArticles);
-      }
+      // Logika auto-load page 2 dihapus karena ditangani oleh controller: loadMoreArticles()
+      // Ini mencegah duplikasi dan loop rekursif yang tidak perlu.
 
       return filteredArticles;
     } catch (e) {
       print('❌ Error in getTopHeadlines: $e');
-      // Fallback to mock data jika semua gagal
+      // Fallback to mock data jika semua gagal (hanya untuk page 1)
       if (page == 1) {
         return await _getComprehensiveMockNews();
       }
-      return [];
+      throw e; // Lemparkan error untuk subsequent pages
     }
   }
 
@@ -160,32 +186,26 @@ class NewsService {
 
       final filteredArticles = _filterAndParseArticles(articles);
 
-      // Auto-load next page jika hasil sedikit
-      if (filteredArticles.length < 15 && page == 1) {
-        print('🔄 Few search results, fetching page 2...');
-        final nextPageArticles = await searchNews(
-          query,
-          pageSize: pageSize,
-          page: 2,
-        );
-        filteredArticles.addAll(nextPageArticles);
-      }
+      // Logika auto-load page 2 dihapus
 
       return filteredArticles;
     } catch (e) {
       print('❌ Search failed: $e');
-      // Fallback to filtered mock data
-      return _getComprehensiveMockNews().then(
-        (articles) => articles
-            .where(
-              (article) =>
-                  article.title.toLowerCase().contains(query.toLowerCase()) ||
-                  (article.description ?? '').toLowerCase().contains(
-                    query.toLowerCase(),
-                  ),
-            )
-            .toList(),
-      );
+      // Fallback to filtered mock data (hanya untuk page 1)
+      if (page == 1) {
+        return _getComprehensiveMockNews().then(
+          (articles) => articles
+              .where(
+                (article) =>
+                    article.title.toLowerCase().contains(query.toLowerCase()) ||
+                    (article.description ?? '').toLowerCase().contains(
+                      query.toLowerCase(),
+                    ),
+              )
+              .toList(),
+        );
+      }
+      throw e;
     }
   }
 
@@ -220,7 +240,7 @@ class NewsService {
         allArticles.addAll(articles);
       }
 
-      // Remove duplicates berdasarkan title
+      // Remove duplicates berdasarkan url
       allArticles = _removeDuplicates(allArticles);
 
       // Shuffle untuk variasi
@@ -259,12 +279,10 @@ class NewsService {
   static Future<List<Article>> _getComprehensiveMockNews() async {
     await Future.delayed(const Duration(milliseconds: 800));
 
-    final List<Article> mockArticles = [];
-
-    // Technology News (10 articles)
-    mockArticles.addAll([
+    // Catatan: Model Article Anda menggunakan 'String' untuk 'source'
+    final List<Article> mockArticles = [
       Article(
-        source: Source(name: 'Tech News'),
+        source: 'Tech News',
         author: 'John Doe',
         title: 'Flutter 3.0 Released with Major Updates',
         description:
@@ -275,7 +293,7 @@ class NewsService {
         content: 'Flutter 3.0 brings exciting new features...',
       ),
       Article(
-        source: Source(name: 'AI Daily'),
+        source: 'AI Daily',
         author: 'Dr. Emily Chen',
         title: 'Breakthrough in Natural Language Processing',
         description:
@@ -288,37 +306,7 @@ class NewsService {
         content: 'Researchers have developed a new model...',
       ),
       Article(
-        source: Source(name: 'Mobile World'),
-        author: 'Mike Johnson',
-        title: 'Smartphone Sales Reach All-Time High',
-        description:
-            'Global smartphone shipments exceed expectations in Q4 market report.',
-        url: 'https://example.com/smartphone-sales',
-        urlToImage: 'https://picsum.photos/400/200?random=3',
-        publishedAt: DateTime.now()
-            .subtract(const Duration(hours: 4))
-            .toIso8601String(),
-        content: 'The smartphone market shows strong growth...',
-      ),
-      Article(
-        source: Source(name: 'Web Development Weekly'),
-        author: 'Sarah Wilson',
-        title: 'New Web Framework Gains Popularity',
-        description:
-            'Developers are flocking to the new framework for its simplicity and performance.',
-        url: 'https://example.com/web-framework',
-        urlToImage: 'https://picsum.photos/400/200?random=4',
-        publishedAt: DateTime.now()
-            .subtract(const Duration(hours: 6))
-            .toIso8601String(),
-        content: 'The framework has seen rapid adoption...',
-      ),
-    ]);
-
-    // Business News (8 articles)
-    mockArticles.addAll([
-      Article(
-        source: Source(name: 'Business Daily'),
+        source: 'Business Daily',
         author: 'Sarah Wilson',
         title: 'Stock Markets Hit Record Highs',
         description:
@@ -331,7 +319,7 @@ class NewsService {
         content: 'Investors celebrate as markets continue rally...',
       ),
       Article(
-        source: Source(name: 'Finance Today'),
+        source: 'Finance Today',
         author: 'Robert Kim',
         title: 'Cryptocurrency Market Shows Recovery Signs',
         description:
@@ -343,12 +331,8 @@ class NewsService {
             .toIso8601String(),
         content: 'Bitcoin and Ethereum lead market recovery...',
       ),
-    ]);
-
-    // Sports News (7 articles)
-    mockArticles.addAll([
       Article(
-        source: Source(name: 'Sports Network'),
+        source: 'Sports Network',
         author: 'Tom Anderson',
         title: 'Local Team Wins Championship in Overtime',
         description:
@@ -361,24 +345,7 @@ class NewsService {
         content: 'The final match kept fans on the edge...',
       ),
       Article(
-        source: Source(name: 'Olympic News'),
-        author: 'Maria Gonzalez',
-        title: 'Young Athlete Breaks World Record',
-        description:
-            'Rising star sets new world record in track and field event.',
-        url: 'https://example.com/world-record',
-        urlToImage: 'https://picsum.photos/400/200?random=8',
-        publishedAt: DateTime.now()
-            .subtract(const Duration(hours: 6))
-            .toIso8601String(),
-        content: 'The young athlete surprised everyone...',
-      ),
-    ]);
-
-    // Health & Science (8 articles)
-    mockArticles.addAll([
-      Article(
-        source: Source(name: 'Health News'),
+        source: 'Health News',
         author: 'Dr. Sarah Wilson',
         title: 'Breakthrough in Cancer Research',
         description:
@@ -391,24 +358,7 @@ class NewsService {
         content: 'Scientists discover new approach to treatment...',
       ),
       Article(
-        source: Source(name: 'Science Journal'),
-        author: 'Dr. James Park',
-        title: 'NASA Discovers New Earth-like Planet',
-        description:
-            'Telescope data reveals planet in habitable zone of distant star.',
-        url: 'https://example.com/new-planet',
-        urlToImage: 'https://picsum.photos/400/200?random=10',
-        publishedAt: DateTime.now()
-            .subtract(const Duration(days: 2))
-            .toIso8601String(),
-        content: 'The discovery opens new possibilities...',
-      ),
-    ]);
-
-    // Entertainment (7 articles)
-    mockArticles.addAll([
-      Article(
-        source: Source(name: 'Entertainment Weekly'),
+        source: 'Entertainment Weekly',
         author: 'Lisa Thompson',
         title: 'Blockbuster Movie Breaks Box Office Records',
         description: 'Latest superhero film sets new opening weekend record.',
@@ -419,19 +369,7 @@ class NewsService {
             .toIso8601String(),
         content: 'Fans flock to theaters for the much-anticipated release...',
       ),
-      Article(
-        source: Source(name: 'Music Today'),
-        author: 'Alex Rivera',
-        title: 'Award-Winning Artist Announces World Tour',
-        description: 'Popular musician reveals dates for upcoming global tour.',
-        url: 'https://example.com/world-tour',
-        urlToImage: 'https://picsum.photos/400/200?random=12',
-        publishedAt: DateTime.now()
-            .subtract(const Duration(hours: 8))
-            .toIso8601String(),
-        content: 'Tickets for the tour are expected to sell out quickly...',
-      ),
-    ]);
+    ];
 
     // Shuffle untuk variasi
     mockArticles.shuffle();
@@ -443,8 +381,11 @@ class NewsService {
 
   // Helper methods
   static List<Article> _removeDuplicates(List<Article> articles) {
-    final seenTitles = <String>{};
-    return articles.where((article) => seenTitles.add(article.title)).toList();
+    // Menggunakan URL untuk menghilangkan duplikat (lebih akurat daripada title)
+    final seenUrls = <String>{};
+    return articles
+        .where((article) => article.url.isNotEmpty && seenUrls.add(article.url))
+        .toList();
   }
 
   static dynamic _validateResponse(http.Response response) {
@@ -455,15 +396,29 @@ class NewsService {
         );
 
         if (data['status'] == 'error') {
-          throw NewsApiException(message: data['message'] ?? 'API Error');
+          // Tambahkan penanganan kode error spesifik News API
+          String errorCode = data['code'] as String? ?? 'UNKNOWN_ERROR';
+          String message = data['message'] as String? ?? 'API Error';
+
+          int? httpCode;
+          if (errorCode == 'apiKeyInvalid' || errorCode == 'apiKeyDisabled')
+            httpCode = 401;
+          else if (errorCode == 'rateLimited')
+            httpCode = 429;
+
+          throw NewsApiException(message: message, code: httpCode);
         }
 
         return data;
       } catch (e) {
+        if (e is NewsApiException) rethrow;
         throw NewsApiException(message: 'Invalid JSON response');
       }
     } else {
-      throw NewsApiException(message: 'HTTP ${response.statusCode}');
+      throw NewsApiException(
+        message: 'HTTP ${response.statusCode}',
+        code: response.statusCode,
+      );
     }
   }
 
@@ -487,8 +442,7 @@ class NewsService {
         article.title.length > 5 &&
         article.description != null &&
         article.description!.isNotEmpty &&
-        article.url != null &&
-        article.url!.isNotEmpty;
+        article.url.isNotEmpty; // url di Article model sudah required
   }
 
   // Method lainnya tetap sama dengan improvement
@@ -496,7 +450,9 @@ class NewsService {
     String category, {
     String country = 'us',
     int pageSize = 25,
+    // Parameter duplikat `required String category` dihapus di sini
   }) async {
+    // Karena parameter pertama adalah `category`, maka yang di bawah ini adalah yang benar
     return getTopHeadlines(
       category: category,
       pageSize: pageSize,
@@ -573,6 +529,8 @@ class NewsService {
       return false;
     }
   }
+
+  // Fungsi 'Source' yang salah dan tidak valid dihapus.
 }
 
 class NewsApiException implements Exception {

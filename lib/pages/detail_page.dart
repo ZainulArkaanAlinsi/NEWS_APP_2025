@@ -5,9 +5,11 @@ import 'package:share_plus/share_plus.dart';
 import '../models/article.dart';
 import '../controllers/news_controller.dart';
 
-class DetailPage extends StatelessWidget {
+// MENGUBAH ke GetView<NewsController>
+class DetailPage extends GetView<NewsController> {
   final Article article;
-  final NewsController controller = Get.find<NewsController>();
+  // 'controller' (NewsController) sudah tersedia secara otomatis di GetView
+  // final NewsController controller = Get.find<NewsController>(); <--- Hapus baris ini
 
   // Warna-warna dengan design system yang lebih konsisten
   static const Color primaryColor = Color(0xFFE53935);
@@ -123,6 +125,7 @@ class DetailPage extends StatelessWidget {
           context,
           icon: Obx(
             () => Icon(
+              // Menggunakan properti 'controller' otomatis
               controller.isFavorite(article)
                   ? Icons.bookmark_rounded
                   : Icons.bookmark_border_rounded,
@@ -131,6 +134,7 @@ class DetailPage extends StatelessWidget {
                   : Colors.white,
             ),
           ),
+          // Menggunakan properti 'controller' otomatis
           onPressed: () => controller.toggleFavorite(article),
         ),
       ],
@@ -381,6 +385,7 @@ class DetailPage extends StatelessWidget {
   /// Related News Section dengan GetX reactive data
   Widget _buildRelatedNewsSection(BuildContext context) {
     return Obx(() {
+      // Menggunakan properti 'controller' otomatis
       if (controller.articles.length <= 1) return const SizedBox();
 
       final relatedNews = controller.articles
@@ -432,6 +437,7 @@ class DetailPage extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
+          // Navigasi dengan Get.to()
           onTap: () => Get.to(
             () => DetailPage(article: relatedArticle),
             transition: Transition.cupertino,
